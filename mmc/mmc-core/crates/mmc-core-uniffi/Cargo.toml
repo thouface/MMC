@@ -1,0 +1,29 @@
+[package]
+name = "mmc-core-uniffi"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mmc-protocol = { path = "../mmc-protocol" }
+mmc-security = { path = "../mmc-security" }
+mmc-discovery = { path = "../mmc-discovery" }
+mmc-pairing = { path = "../mmc-pairing" }
+mmc-file-transfer = { path = "../mmc-file-transfer" }
+mmc-storage = { path = "../mmc-storage" }
+
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+hostname = "0.4"
+bytes = "1.6"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.10"

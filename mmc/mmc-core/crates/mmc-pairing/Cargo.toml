@@ -1,0 +1,21 @@
+[package]
+name = "mmc-pairing"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mmc-protocol = { path = "../mmc-protocol" }
+mmc-security = { path = "../mmc-security" }
+rustls = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+base64 = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"

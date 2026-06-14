@@ -1,0 +1,14 @@
+[package]
+name = "mmc-protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytes = "1.6"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
