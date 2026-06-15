@@ -316,6 +316,26 @@ pub struct KeyEvent {
     pub text: Option<String>,
 }
 
+/// Heartbeat message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Heartbeat {
+    pub timestamp_ms: u64,
+    pub device_id: String,
+}
+
+/// Ping message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ping {
+    pub timestamp_ms: u64,
+}
+
+/// Pong message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pong {
+    pub timestamp_ms: u64,
+    pub original_timestamp_ms: u64,
+}
+
 /// Clipboard content
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardContent {
@@ -398,6 +418,46 @@ impl TouchEvent {
     }
 }
 
+impl Heartbeat {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl Ping {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl Pong {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl ClipboardContent {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,5 +519,60 @@ mod tests {
 
         assert_eq!(decoded.id, device_info.id);
         assert_eq!(decoded.name, device_info.name);
+    }
+
+    #[test]
+    fn test_heartbeat_json_roundtrip() {
+        let heartbeat = Heartbeat {
+            timestamp_ms: 1234567890,
+            device_id: "device-abc".to_string(),
+        };
+
+        let json = heartbeat.to_json().unwrap();
+        let decoded = Heartbeat::from_json(&json).unwrap();
+
+        assert_eq!(decoded.timestamp_ms, heartbeat.timestamp_ms);
+        assert_eq!(decoded.device_id, heartbeat.device_id);
+    }
+
+    #[test]
+    fn test_ping_pong_json_roundtrip() {
+        let ping = Ping { timestamp_ms: 1234567890 };
+        let json = ping.to_json().unwrap();
+        let decoded_ping = Ping::from_json(&json).unwrap();
+        assert_eq!(decoded_ping.timestamp_ms, ping.timestamp_ms);
+
+        let pong = Pong {
+            timestamp_ms: 1234567895,
+            original_timestamp_ms: 1234567890,
+        };
+        let json = pong.to_json().unwrap();
+        let decoded_pong = Pong::from_json(&json).unwrap();
+        assert_eq!(decoded_pong.timestamp_ms, pong.timestamp_ms);
+        assert_eq!(decoded_pong.original_timestamp_ms, pong.original_timestamp_ms);
+    }
+
+    #[test]
+    fn test_clipboard_content_json_roundtrip() {
+        let clipboard_text = ClipboardContent {
+            timestamp_ms: 1234567890,
+            content: ClipboardData::Text { text: "Hello World".to_string() },
+        };
+        let json = clipboard_text.to_json().unwrap();
+        let decoded = ClipboardContent::from_json(&json).unwrap();
+        assert_eq!(decoded.timestamp_ms, clipboard_text.timestamp_ms);
+        if let ClipboardData::Text { text } = decoded.content {
+            assert_eq!(text, "Hello World");
+        }
+
+        let clipboard_url = ClipboardContent {
+            timestamp_ms: 1234567891,
+            content: ClipboardData::Url { url: "https://example.com".to_string() },
+        };
+        let json = clipboard_url.to_json().unwrap();
+        let decoded = ClipboardContent::from_json(&json).unwrap();
+        if let ClipboardData::Url { url } = decoded.content {
+            assert_eq!(url, "https://example.com");
+        }
     }
 }

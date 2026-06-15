@@ -91,7 +91,7 @@
 | test_device_type_variants | 设备类型枚举变体 | ✅ |
 | test_config_operations (db.rs) | db.rs 中配置操作测试 | ✅ |
 
-### 2.6 mmc-protocol (8 tests)
+### 2.6 mmc-protocol (11 tests)
 
 | 测试用例 | 描述 | 状态 |
 |----------|------|------|
@@ -103,6 +103,9 @@
 | test_device_info_roundtrip | Protobuf DeviceInfo 往返 | ✅ |
 | test_pairing_request_roundtrip | Protobuf PairingRequest 往返 | ✅ |
 | test_touch_event_roundtrip | Protobuf TouchEvent 往返 | ✅ |
+| test_heartbeat_json_roundtrip | Heartbeat 消息 JSON 往返 | ✅ |
+| test_ping_pong_json_roundtrip | Ping/Pong 消息 JSON 往返 | ✅ |
+| test_clipboard_content_json_roundtrip | ClipboardContent JSON 往返 | ✅ |
 
 ### 2.7 mmc-security (7 tests)
 
@@ -129,13 +132,13 @@
 | mmc-file-transfer | 13 | 13 | 0 |
 | mmc-pairing | 9 | 9 | 0 |
 | mmc-storage | 9 | 9 | 0 |
-| mmc-protocol | 8 | 8 | 0 |
+| mmc-protocol | 11 | 11 | 0 |
 | mmc-security | 7 | 7 | 0 |
-| **总计** | **62** | **62** | **0** |
+| **总计** | **65** | **65** | **0** |
 
 ### 3.2 代码质量
 
-*   所有 62 个测试用例通过，无失败测试
+*   所有 65 个测试用例通过，无失败测试
 *   编译无警告（unused imports/variables 已全部清理）
 *   新增测试覆盖：
     *   关键数据结构字段验证 (DeviceInfo, ChunkManifest, PairedDevice 等)
