@@ -1,6 +1,6 @@
 //! SQLite database implementation for persistent storage
 
-use rusqlite::{params, Connection, Result as SqliteResult};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -138,7 +138,7 @@ impl Database {
             params![
                 device.device_id,
                 device.device_name,
-                device.device_type.as_str(),
+                device.device_type.to_string(),
                 device.os_version,
                 device.app_version,
                 device.ip_address,

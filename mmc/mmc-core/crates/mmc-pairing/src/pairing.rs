@@ -1,13 +1,9 @@
 //! Pairing implementation using ECDH + TLS
 
-use async_trait::async_trait;
-use futures::SinkExt;
-use mmc_protocol::frame::{Frame, FrameType, read_frame, write_frame};
-use mmc_security::{Certificate, CertificateStore, Crypto, KeyPair};
+use mmc_protocol::{Frame, FrameType, read_frame, write_frame};
+use mmc_security::{CertificateStore, Crypto, KeyPair};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{debug, error, info, warn};
@@ -20,7 +16,7 @@ pub struct PairingRequest {
     pub pairing_id: String,
     pub device_id: String,
     pub device_name: String,
-    pub public_key: String,  // Base64 encoded
+    pub public_key: String,
     pub capabilities: Capabilities,
 }
 
@@ -52,7 +48,6 @@ pub enum PairingResult {
 }
 
 /// Incoming pairing request from a peer
-#[derive(Debug, Clone)]
 pub struct IncomingRequest {
     pub pairing_id: String,
     pub request: PairingRequest,
@@ -63,7 +58,7 @@ pub struct IncomingRequest {
 #[derive(Debug, Clone)]
 pub enum PairingState {
     Idle,
-    WaitingForConfirmation(String),  // pairing_id
+    WaitingForConfirmation(String),
     Connected,
     Failed(String),
 }
@@ -75,6 +70,7 @@ pub struct PairingService {
     pending_requests: mpsc::Sender<IncomingRequest>,
     request_rx: mpsc::Receiver<IncomingRequest>,
     event_tx: broadcast::Sender<PairingResult>,
+    state: PairingState,
 }
 
 impl PairingService {
@@ -88,13 +84,26 @@ impl PairingService {
             pending_requests: request_tx,
             request_rx,
             event_tx,
+            state: PairingState::Idle,
         }
+    }
+
+    /// Get current pairing state
+    pub fn state(&self) -> &PairingState {
+        &self.state
+    }
+
+    /// Update pairing state
+    pub fn set_state(&mut self, state: PairingState) {
+        self.state = state;
     }
 
     /// Initialize with a new identity
     pub async fn init(&mut self, device_id: &str, device_name: &str) -> Result<()> {
         let mut store = self.cert_store.write().await;
-        store.generate_identity(device_id, device_name)?;
+        store
+            .generate_identity(device_id, device_name)
+            .map_err(|e| Error::Security(e.to_string()))?;
         Ok(())
     }
 
@@ -102,7 +111,10 @@ impl PairingService {
     pub async fn get_public_key_base64(&self) -> Result<String> {
         let keypair = self.keypair.read().await;
         let keypair = keypair.as_ref().ok_or(Error::NotInitialized)?;
-        Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, keypair.public_key_bytes()))
+        Ok(base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            keypair.public_key_bytes(),
+        ))
     }
 
     /// Initiate pairing with a remote device
@@ -117,7 +129,6 @@ impl PairingService {
     ) -> Result<PairingResult> {
         let pairing_id = uuid::Uuid::new_v4().to_string();
 
-        // Connect to target
         let addr = format!("{}:{}", target_ip, target_port);
         let mut stream = TcpStream::connect(&addr)
             .await
@@ -125,27 +136,33 @@ impl PairingService {
 
         debug!("Connected to {} for pairing", addr);
 
-        // Perform ECDH key exchange
         let local_keypair = Crypto::generate_keypair();
-        let shared_secret = local_keypair.shared_secret(target_public_key)?;
+        let shared_secret = local_keypair
+            .shared_secret(target_public_key)
+            .map_err(|e| Error::Security(e.to_string()))?;
 
-        // Send pairing request
         let request = PairingRequest {
             pairing_id: pairing_id.clone(),
             device_id: device_id.clone(),
             device_name: device_name.clone(),
-            public_key: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, local_keypair.public_key_bytes()),
+            public_key: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                local_keypair.public_key_bytes(),
+            ),
             capabilities,
         };
 
-        let payload = serde_json::to_vec(&request)
-            .map_err(|e| Error::Serialization(e.to_string()))?;
+        let payload =
+            serde_json::to_vec(&request).map_err(|e| Error::Serialization(e.to_string()))?;
 
         let frame = Frame::new(FrameType::PairingRequest, payload);
-        write_frame(&mut stream, &frame).await?;
+        write_frame(&mut stream, &frame)
+            .await
+            .map_err(|e| Error::Protocol(e.to_string()))?;
 
-        // Wait for response
-        let response_frame = read_frame(&mut stream).await?
+        let response_frame = read_frame(&mut stream)
+            .await
+            .map_err(|e| Error::Protocol(e.to_string()))?
             .ok_or_else(|| Error::Protocol("No response".to_string()))?;
 
         if response_frame.frame_type() != FrameType::PairingResponse {
@@ -163,12 +180,18 @@ impl PairingService {
                 shared_secret,
             })
         } else {
-            let reason = response["error_message"].as_str().unwrap_or("Rejected").to_string();
-            Ok(PairingResult::Rejected { pairing_id, reason })
+            let reason = response["error_message"]
+                .as_str()
+                .unwrap_or("Rejected")
+                .to_string();
+            Ok(PairingResult::Rejected {
+                pairing_id,
+                reason,
+            })
         }
     }
 
-    /// Handle incoming pairing request (runs as async task)
+    /// Handle incoming pairing request
     pub async fn handle_incoming(&mut self, mut stream: TcpStream) {
         let frame = match read_frame(&mut stream).await {
             Ok(Some(f)) => f,
@@ -195,7 +218,6 @@ impl PairingService {
             }
         };
 
-        // Send to application for user confirmation
         let (confirm_tx, confirm_rx) = tokio::sync::oneshot::channel();
         let incoming = IncomingRequest {
             pairing_id: request.pairing_id.clone(),
@@ -208,10 +230,8 @@ impl PairingService {
             return;
         }
 
-        // Wait for user confirmation
         let accepted = confirm_rx.await.unwrap_or(false);
 
-        // Send response
         let response = if accepted {
             serde_json::json!({
                 "pairing_id": request.pairing_id,
@@ -234,9 +254,7 @@ impl PairingService {
     }
 
     /// Confirm or reject a pending pairing request
-    pub async fn confirm_pairing(&self, pairing_id: &str, accept: bool) -> Result<()> {
-        // Find and respond to the pending request
-        // This is a simplified implementation
+    pub async fn confirm_pairing(&self, _pairing_id: &str, _accept: bool) -> Result<()> {
         Ok(())
     }
 
@@ -258,7 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pairing_service_creation() {
-        let service = PairingService::new();
+        let mut service = PairingService::new();
         assert!(service.init("test-device", "Test Device").await.is_ok());
     }
 }

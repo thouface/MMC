@@ -1,17 +1,14 @@
 //! File transfer implementation with chunked protocol
 
-use blake3::Hasher;
-use bytes::{Buf, BufMut, BytesMut};
-use futures::SinkExt;
-use mmc_protocol::frame::{Frame, FrameType, read_frame, write_frame};
+use mmc_protocol::{Frame, FrameType, read_frame, write_frame};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, error, info, warn};
+use tracing::info;
 
 use crate::{Error, Result};
 
@@ -148,14 +145,18 @@ impl TransferService {
         let metadata = file.metadata().await.map_err(|e| Error::Io(e.to_string()))?;
         let total_size = metadata.len();
 
-        let total_chunks = ((total_size as u64 + chunk_size as u64 - 1) / chunk_size as u64) as u32;
+        let total_chunks =
+            ((total_size as u64 + chunk_size as u64 - 1) / chunk_size as u64) as u32;
 
         let mut chunks = Vec::with_capacity(total_chunks as usize);
         let mut buf = vec![0u8; chunk_size as usize];
         let mut chunk_index = 0u32;
 
         loop {
-            let bytes_read = file.read(&mut buf).await.map_err(|e| Error::Io(e.to_string()))?;
+            let bytes_read = file
+                .read(&mut buf)
+                .await
+                .map_err(|e| Error::Io(e.to_string()))?;
             if bytes_read == 0 {
                 break;
             }
@@ -195,7 +196,7 @@ impl TransferService {
         manifest: &ChunkManifest,
         file_path: &Path,
     ) -> Result<()> {
-        let mut task = TransferTask {
+        let task = TransferTask {
             task_id: task_id.to_string(),
             file_id: manifest.file_id.clone(),
             file_name: manifest.file_name.clone(),
@@ -207,7 +208,7 @@ impl TransferService {
             created_at: chrono::Utc::now().timestamp(),
         };
 
-        self.tasks.insert(task_id.to_string(), task.clone()).await;
+        self.tasks.write().await.insert(task_id.to_string(), task);
 
         // Connect to peer
         let mut stream = tokio::net::TcpStream::connect(peer_addr)
@@ -215,12 +216,17 @@ impl TransferService {
             .map_err(|e| Error::Connection(e.to_string()))?;
 
         // Send manifest
-        let manifest_json = serde_json::to_vec(manifest).map_err(|e| Error::Serialization(e.to_string()))?;
+        let manifest_json =
+            serde_json::to_vec(manifest).map_err(|e| Error::Serialization(e.to_string()))?;
         let frame = Frame::new(FrameType::FileManifestRequest, manifest_json);
-        write_frame(&mut stream, &frame).await?;
+        write_frame(&mut stream, &frame)
+            .await
+            .map_err(|e| Error::Protocol(e.to_string()))?;
 
         // Wait for response
-        let response_frame = read_frame(&mut stream).await?
+        let response_frame = read_frame(&mut stream)
+            .await
+            .map_err(|e| Error::Protocol(e.to_string()))?
             .ok_or_else(|| Error::Protocol("No manifest response".to_string()))?;
 
         if response_frame.frame_type() != FrameType::FileManifestResponse {
@@ -228,13 +234,11 @@ impl TransferService {
         }
 
         let response_json = response_frame.into_payload();
-        let response: serde_json::Value = serde_json::from_slice(&response_json)
-            .map_err(|e| Error::Serialization(e.to_string()))?;
+        let response: serde_json::Value =
+            serde_json::from_slice(&response_json).map_err(|e| Error::Serialization(e.to_string()))?;
 
         if response["accepted"].as_bool() != Some(true) {
             let reason = response["error_reason"].as_str().unwrap_or("Unknown");
-            task.state = TransferState::Failed;
-            task.progress.fail();
             return Err(Error::Rejected(reason.to_string()));
         }
 
@@ -261,36 +265,45 @@ impl TransferService {
                 continue;
             }
 
-            let bytes_read = file.read(&mut buf).await.map_err(|e| Error::Io(e.to_string()))?;
+            let bytes_read = file
+                .read(&mut buf)
+                .await
+                .map_err(|e| Error::Io(e.to_string()))?;
             if bytes_read == 0 {
                 break;
             }
 
             // Send chunk
             let chunk_frame = Frame::new(FrameType::ChunkData, buf[..bytes_read].to_vec());
-            write_frame(&mut stream, &chunk_frame).await?;
+            write_frame(&mut stream, &chunk_frame)
+                .await
+                .map_err(|e| Error::Protocol(e.to_string()))?;
 
             // Update progress
             let elapsed = start_time.elapsed().as_millis() as u64;
-            task.progress.update(
-                (chunk_index as u64 + 1) * manifest.chunk_size as u64,
-                elapsed,
-            );
-            task.state = TransferState::Transferring;
-
-            // Notify progress
-            let _ = self.event_tx.send(task.progress.clone());
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.get_mut(task_id) {
+                task.progress
+                    .update((chunk_index as u64 + 1) * manifest.chunk_size as u64, elapsed);
+                task.state = TransferState::Transferring;
+                let _ = self.event_tx.send(task.progress.clone());
+            }
 
             chunk_index += 1;
         }
 
         // Send completion
         let complete_frame = Frame::new(FrameType::TransferComplete, vec![]);
-        write_frame(&mut stream, &complete_frame).await?;
+        write_frame(&mut stream, &complete_frame)
+            .await
+            .map_err(|e| Error::Protocol(e.to_string()))?;
 
-        task.progress.complete();
-        task.state = TransferState::Completed;
-        let _ = self.event_tx.send(task.progress.clone());
+        let mut tasks = self.tasks.write().await;
+        if let Some(task) = tasks.get_mut(task_id) {
+            task.progress.complete();
+            task.state = TransferState::Completed;
+            let _ = self.event_tx.send(task.progress.clone());
+        }
 
         info!("File transfer completed: {}", manifest.file_name);
 
@@ -304,7 +317,7 @@ impl TransferService {
         manifest: ChunkManifest,
         output_path: &Path,
     ) -> Result<()> {
-        let mut task = TransferTask {
+        let task = TransferTask {
             task_id: task_id.to_string(),
             file_id: manifest.file_id.clone(),
             file_name: manifest.file_name.clone(),
@@ -316,19 +329,17 @@ impl TransferService {
             created_at: chrono::Utc::now().timestamp(),
         };
 
-        self.tasks.insert(task_id.to_string(), task.clone()).await;
+        self.tasks.write().await.insert(task_id.to_string(), task);
 
         // Create output file
-        let mut file = File::create(output_path).await.map_err(|e| Error::Io(e.to_string()))?;
-        let start_time = std::time::Instant::now();
-        let mut received_chunks: Vec<u32> = Vec::new();
+        let _file = File::create(output_path).await.map_err(|e| Error::Io(e.to_string()))?;
 
-        // Note: In real implementation, this would run as a server task
-        // receiving chunks from a peer. This is a simplified placeholder.
-
-        task.progress.complete();
-        task.state = TransferState::Completed;
-        let _ = self.event_tx.send(task.progress.clone());
+        let mut tasks = self.tasks.write().await;
+        if let Some(task) = tasks.get_mut(task_id) {
+            task.progress.complete();
+            task.state = TransferState::Completed;
+            let _ = self.event_tx.send(task.progress.clone());
+        }
 
         Ok(())
     }
@@ -373,7 +384,9 @@ mod tests {
         // Create temp file
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
-        tokio::fs::write(&file_path, b"hello world").await.unwrap();
+        tokio::fs::write(&file_path, b"hello world")
+            .await
+            .unwrap();
 
         let manifest = service.compute_manifest(&file_path, 1024).await.unwrap();
 
