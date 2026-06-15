@@ -840,6 +840,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mmc-media-service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "mmc-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+]
+
+[[package]]
 name = "mmc-pairing"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "mmc-media-service"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mmc-protocol = { path = "../mmc-protocol" }
+tokio = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = "1.0"
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"

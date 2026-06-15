@@ -8,6 +8,7 @@ members = [
     "crates/mmc-file-transfer",
     "crates/mmc-storage",
     "crates/mmc-core-uniffi",
+    "crates/mmc-media-service",
 ]
 
 [workspace.package]

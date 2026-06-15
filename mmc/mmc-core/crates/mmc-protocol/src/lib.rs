@@ -49,6 +49,11 @@ pub enum FrameType {
     TouchEvent = 0x0301,
     KeyEvent = 0x0302,
     ClipboardContent = 0x0303,
+    // Screen Mirroring
+    VideoFrame = 0x0401,
+    AudioFrame = 0x0402,
+    VideoConfig = 0x0403,
+    AudioConfig = 0x0404,
     // System
     Heartbeat = 0xFF01,
     Ping = 0xFF02,
@@ -69,6 +74,10 @@ impl FrameType {
             0x0301 => Some(Self::TouchEvent),
             0x0302 => Some(Self::KeyEvent),
             0x0303 => Some(Self::ClipboardContent),
+            0x0401 => Some(Self::VideoFrame),
+            0x0402 => Some(Self::AudioFrame),
+            0x0403 => Some(Self::VideoConfig),
+            0x0404 => Some(Self::AudioConfig),
             0xFF01 => Some(Self::Heartbeat),
             0xFF02 => Some(Self::Ping),
             0xFF03 => Some(Self::Pong),
@@ -352,6 +361,73 @@ pub enum ClipboardData {
     Url { url: String },
 }
 
+/// Video pixel format
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum PixelFormat {
+    Unknown = 0,
+    Rgba8888 = 1,
+    Bgra8888 = 2,
+    Rgb565 = 3,
+    Yuv420p = 4,
+    Nv12 = 5,
+}
+
+/// Video configuration message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoConfig {
+    pub width: u32,
+    pub height: u32,
+    pub pixel_format: PixelFormat,
+    pub frame_rate: u32,
+    pub codec: String,
+    pub bitrate: u32,
+}
+
+/// Video frame message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoFrame {
+    pub sequence_id: u64,
+    pub timestamp_ms: u64,
+    pub width: u32,
+    pub height: u32,
+    pub pixel_format: PixelFormat,
+    pub is_keyframe: bool,
+    pub data: Vec<u8>,
+}
+
+/// Audio sample format
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum SampleFormat {
+    Unknown = 0,
+    U8 = 1,
+    S16 = 2,
+    S32 = 3,
+    F32 = 4,
+}
+
+/// Audio configuration message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioConfig {
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub sample_format: SampleFormat,
+    pub codec: String,
+    pub bitrate: u32,
+}
+
+/// Audio frame message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioFrame {
+    pub sequence_id: u64,
+    pub timestamp_ms: u64,
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub sample_format: SampleFormat,
+    pub data: Vec<u8>,
+}
+
 // ============================================================
 // JSON Serialization Helpers
 // ============================================================
@@ -449,6 +525,56 @@ impl Pong {
 }
 
 impl ClipboardContent {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl KeyEvent {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl VideoConfig {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl VideoFrame {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl AudioConfig {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl AudioFrame {
     pub fn to_json(&self) -> error::Result<Vec<u8>> {
         serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
     }
@@ -574,5 +700,125 @@ mod tests {
         if let ClipboardData::Url { url } = decoded.content {
             assert_eq!(url, "https://example.com");
         }
+    }
+
+    #[test]
+    fn test_video_frame_json_roundtrip() {
+        let frame = VideoFrame {
+            sequence_id: 42,
+            timestamp_ms: 1234567890,
+            width: 1920,
+            height: 1080,
+            pixel_format: PixelFormat::Rgba8888,
+            is_keyframe: true,
+            data: vec![0xAA, 0xBB, 0xCC, 0xDD],
+        };
+        let json = frame.to_json().unwrap();
+        let decoded = VideoFrame::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, frame.sequence_id);
+        assert_eq!(decoded.width, frame.width);
+        assert_eq!(decoded.height, frame.height);
+        assert_eq!(decoded.pixel_format, frame.pixel_format);
+        assert_eq!(decoded.is_keyframe, frame.is_keyframe);
+        assert_eq!(decoded.data, frame.data);
+    }
+
+    #[test]
+    fn test_video_config_json_roundtrip() {
+        let config = VideoConfig {
+            width: 1920,
+            height: 1080,
+            pixel_format: PixelFormat::Rgba8888,
+            frame_rate: 30,
+            codec: "raw".to_string(),
+            bitrate: 5000000,
+        };
+        let json = config.to_json().unwrap();
+        let decoded = VideoConfig::from_json(&json).unwrap();
+
+        assert_eq!(decoded.width, config.width);
+        assert_eq!(decoded.height, config.height);
+        assert_eq!(decoded.pixel_format, config.pixel_format);
+        assert_eq!(decoded.frame_rate, config.frame_rate);
+        assert_eq!(decoded.codec, config.codec);
+    }
+
+    #[test]
+    fn test_audio_frame_json_roundtrip() {
+        let frame = AudioFrame {
+            sequence_id: 7,
+            timestamp_ms: 1234567890,
+            sample_rate: 44100,
+            channels: 2,
+            sample_format: SampleFormat::S16,
+            data: vec![0x01, 0x02, 0x03, 0x04],
+        };
+        let json = frame.to_json().unwrap();
+        let decoded = AudioFrame::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, frame.sequence_id);
+        assert_eq!(decoded.sample_rate, frame.sample_rate);
+        assert_eq!(decoded.channels, frame.channels);
+        assert_eq!(decoded.sample_format, frame.sample_format);
+        assert_eq!(decoded.data, frame.data);
+    }
+
+    #[test]
+    fn test_key_event_json_roundtrip() {
+        let event = KeyEvent {
+            sequence_id: 100,
+            timestamp_ms: 1234567890,
+            key_type: KeyEventType::Down,
+            key_code: 65,
+            text: None,
+        };
+        let json = event.to_json().unwrap();
+        let decoded = KeyEvent::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, event.sequence_id);
+        assert_eq!(decoded.key_type, event.key_type);
+        assert_eq!(decoded.key_code, event.key_code);
+
+        let event_text = KeyEvent {
+            sequence_id: 101,
+            timestamp_ms: 1234567891,
+            key_type: KeyEventType::Text,
+            key_code: 0,
+            text: Some("Hello".to_string()),
+        };
+        let json = event_text.to_json().unwrap();
+        let decoded = KeyEvent::from_json(&json).unwrap();
+        assert_eq!(decoded.text, event_text.text);
+    }
+
+    #[test]
+    fn test_touch_event_json_roundtrip() {
+        let event = TouchEvent {
+            sequence_id: 1,
+            timestamp_ms: 1234567890,
+            touch_type: TouchType::Down,
+            x: 100.5,
+            y: 200.3,
+            pressure: 0.8,
+            touch_major: 5.0,
+            pointer_id: 0,
+        };
+        let json = event.to_json().unwrap();
+        let decoded = TouchEvent::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, event.sequence_id);
+        assert_eq!(decoded.touch_type, event.touch_type);
+        assert_eq!(decoded.x, event.x);
+        assert_eq!(decoded.y, event.y);
+        assert_eq!(decoded.pressure, event.pressure);
+    }
+
+    #[test]
+    fn test_new_frame_types() {
+        assert_eq!(FrameType::from_u16(0x0401), Some(FrameType::VideoFrame));
+        assert_eq!(FrameType::from_u16(0x0402), Some(FrameType::AudioFrame));
+        assert_eq!(FrameType::from_u16(0x0403), Some(FrameType::VideoConfig));
+        assert_eq!(FrameType::from_u16(0x0404), Some(FrameType::AudioConfig));
     }
 }
