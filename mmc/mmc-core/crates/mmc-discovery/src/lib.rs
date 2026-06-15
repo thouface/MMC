@@ -3,11 +3,13 @@
 
 pub mod discovery;
 pub mod error;
+pub mod network;
 
 pub use discovery::{
     DeviceInfo, DeviceType, DiscoveryEvent, DiscoveryService,
 };
 pub use error::{Error, Result};
+pub use network::{ConnectionState, NetworkConnection, NetworkEvent, NetworkManager};
 
 /// Service type for MMC
 pub const SERVICE_TYPE: &str = "_mmc._tcp.local.";

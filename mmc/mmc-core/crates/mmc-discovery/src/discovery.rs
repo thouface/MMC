@@ -103,11 +103,22 @@ impl DeviceInfo {
 pub struct Device {
     pub info: DeviceInfo,
     pub last_seen_instant: Instant,
+    pub heartbeat_count: u32,
+    pub last_heartbeat: Instant,
 }
 
 impl Device {
     pub fn is_expired(&self, ttl_secs: u32) -> bool {
         self.last_seen_instant.elapsed() > Duration::from_secs(ttl_secs as u64 * 2)
+    }
+
+    pub fn is_heartbeat_timeout(&self, timeout_secs: u32) -> bool {
+        self.last_heartbeat.elapsed() > Duration::from_secs(timeout_secs as u64)
+    }
+
+    pub fn update_heartbeat(&mut self) {
+        self.last_heartbeat = Instant::now();
+        self.heartbeat_count += 1;
     }
 }
 
@@ -196,6 +207,8 @@ impl DiscoveryService {
                         let device = Device {
                             info: device_info.clone(),
                             last_seen_instant: Instant::now(),
+                            heartbeat_count: 0,
+                            last_heartbeat: Instant::now(),
                         };
 
                         discovered.insert(device_info.id.clone(), device);
@@ -397,6 +410,8 @@ mod tests {
         let device = Device {
             info,
             last_seen_instant: Instant::now(),
+            heartbeat_count: 0,
+            last_heartbeat: Instant::now(),
         };
 
         assert!(!device.is_expired(60));

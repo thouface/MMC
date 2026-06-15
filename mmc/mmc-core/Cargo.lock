@@ -809,6 +809,7 @@ dependencies = [
  "chrono",
  "futures",
  "mdns-sd",
+ "mmc-protocol",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

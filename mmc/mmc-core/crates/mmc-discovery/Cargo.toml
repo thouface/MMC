@@ -15,6 +15,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+mmc-protocol = { path = "../mmc-protocol" }
 
 [dev-dependencies]
 tokio-test = "0.4"
