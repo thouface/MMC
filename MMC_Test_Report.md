@@ -2,7 +2,7 @@
 
 **项目名称**: MMC (Multi-device Mesh Control) 核心库原型
 **测试日期**: 2026-06-15
-**测试结果**: 30 tests passed; 0 failed
+**测试结果**: 34 tests passed; 0 failed
 
 ---
 
@@ -15,13 +15,13 @@
 | 模块 | 测试用例数 | 通过数 | 状态 |
 |------|-----------|--------|------|
 | mmc-security | 7 | 7 | ✓ |
-| mmc-protocol | 4 | 4 | ✓ |
+| mmc-protocol | 8 | 8 | ✓ |
 | mmc-discovery | 4 | 4 | ✓ |
 | mmc-pairing | 2 | 2 | ✓ |
 | mmc-file-transfer | 4 | 4 | ✓ |
 | mmc-storage | 5 | 5 | ✓ |
 | mmc-core-uniffi | 4 | 4 | ✓ |
-| **总计** | **30** | **30** | **✓** |
+| **总计** | **34** | **34** | **✓** |
 
 ---
 
@@ -45,9 +45,9 @@
 
 ---
 
-### 2.2 mmc-protocol (4 tests)
+### 2.2 mmc-protocol (8 tests)
 
-协议模块，定义自定义 TCP 帧格式和 JSON 序列化消息。
+协议模块，定义自定义 TCP 帧格式和 Protobuf/JSON 序列化消息。
 
 | 测试用例 | 描述 | 状态 |
 |----------|------|------|
@@ -55,11 +55,19 @@
 | `test_frame_decode` | 测试帧数据解码 | ✓ |
 | `test_frame_type_from_u16` | 测试 FrameType 枚举值映射 | ✓ |
 | `test_read_write_frame` | 测试异步流式帧读写 | ✓ |
+| `test_json_serialization` | 测试 JSON 序列化/反序列化 | ✓ |
+| `test_device_info_roundtrip` | 测试 Protobuf DeviceInfo 序列化往返 | ✓ |
+| `test_pairing_request_roundtrip` | 测试 Protobuf PairingRequest 往返 | ✓ |
+| `test_touch_event_roundtrip` | 测试 Protobuf TouchEvent 往返 | ✓ |
 
 **关键类型**:
 - `FrameType`: 协议帧类型枚举 (0x0101-0xFF03)
 - `Frame`: 自定义 TCP 帧结构
-- `DeviceInfo`, `PairingRequest`, `TouchEvent` 等消息结构
+- `protobuf`: Protobuf 消息模块 (DeviceInfo, PairingRequest, TouchEvent 等)
+
+**序列化支持**:
+- JSON (通过 serde_json)
+- Protobuf (通过 prost，从 proto/mmc/v1/mmc.proto 生成)
 
 ---
 
@@ -200,14 +208,41 @@
 - **语言**: Rust (Edition 2021)
 - **异步 runtime**: Tokio 1.52
 - **密码学**: x25519-dalek, ed25519-dalek, blake3, rustls 0.22
+- **序列化**: serde_json 1.0, prost 0.13
 - **mDNS**: mdns-sd 0.8
 - **数据库**: rusqlite 0.31
-- **序列化**: serde_json 1.0
 - **错误处理**: thiserror 2.0
 
 ---
 
-## 4. 模块集成关系
+## 4. Protobuf 支持
+
+MMC 协议现在支持 Protobuf 序列化，从 `proto/mmc/v1/mmc.proto` 自动生成代码：
+
+```
+src/generated/mmc.v1.rs
+```
+
+**生成的类型**:
+- `DeviceInfo`, `Capabilities`
+- `PairingRequest`, `PairingResponse`
+- `FileManifestRequest`, `FileManifestResponse`
+- `TouchEvent`, `KeyEvent`, `ClipboardContent`
+
+**序列化方法**:
+```rust
+// JSON
+let json = device_info.to_json()?;
+
+// Protobuf
+let mut buf = Vec::new();
+prost::Message::encode(&device_info, &mut buf)?;
+let decoded = DeviceInfo::decode(bytes::Bytes::from(buf))?;
+```
+
+---
+
+## 5. 模块集成关系
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -224,19 +259,22 @@
 └─────────────────────────────────────────────────────────┘
                            │
                            ▼
-              ┌─────────────────────┐
-              │   Protocol (Frames)  │
-              │   Security (Crypto)  │
-              └─────────────────────┘
+         ┌─────────────────┬─────────────────┐
+         │                 │                 │
+         ▼                 ▼                 ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│   Protocol      │ │   Security      │ │   Protobuf      │
+│   (Frames)      │ │   (Crypto)      │ │   (mmc.v1)      │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
 ```
 
 ---
 
-## 5. 总结
+## 6. 总结
 
-MMC 核心库原型已完成所有 30 个单元测试，覆盖：
+MMC 核心库原型已完成所有 34 个单元测试，覆盖：
 - 密码学基础 (密钥生成、证书管理、哈希算法)
-- 协议帧编解码
+- 协议帧编解码 + JSON/Protobuf 双重序列化
 - mDNS 设备发现框架
 - ECDH 密钥交换配对流程
 - 文件分片传输与进度跟踪

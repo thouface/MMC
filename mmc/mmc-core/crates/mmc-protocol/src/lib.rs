@@ -1,5 +1,7 @@
 //! Protocol types and frame definitions for MMC
 //! Custom TCP frame protocol for device communication
+//!
+//! Supports both JSON and Protobuf serialization.
 
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,10 @@ pub mod error {
 
     pub type Result<T> = std::result::Result<T, ProtocolError>;
 }
+pub mod protobuf;
+
+pub use error::ProtocolError;
+pub use error::Result;
 
 /// Frame types for the custom TCP protocol
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -326,6 +332,72 @@ pub enum ClipboardData {
     Url { url: String },
 }
 
+// ============================================================
+// JSON Serialization Helpers
+// ============================================================
+
+impl DeviceInfo {
+    /// Serialize to JSON bytes
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    /// Deserialize from JSON bytes
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl PairingRequest {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl PairingResponse {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl FileManifestRequest {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl FileManifestResponse {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl TouchEvent {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +442,24 @@ mod tests {
 
         assert_eq!(read_frame.frame_type, FrameType::Heartbeat);
         assert!(read_frame.payload.is_empty());
+    }
+
+    #[test]
+    fn test_json_serialization() {
+        let device_info = DeviceInfo {
+            id: "device-123".to_string(),
+            name: "Test Device".to_string(),
+            device_type: "phone".to_string(),
+            os_version: "Android 13".to_string(),
+            app_version: "1.0.0".to_string(),
+            ip: "192.168.1.100".to_string(),
+            port: 8080,
+        };
+
+        let json = device_info.to_json().unwrap();
+        let decoded = DeviceInfo::from_json(&json).unwrap();
+
+        assert_eq!(decoded.id, device_info.id);
+        assert_eq!(decoded.name, device_info.name);
     }
 }
