@@ -1,0 +1,132 @@
+syntax = "proto3";
+package mmc.v1;
+
+message DeviceInfo {
+    string device_id = 1;
+    string device_name = 2;
+    DeviceType device_type = 3;
+    string os_version = 4;
+    string app_version = 5;
+    string ip_address = 6;
+    uint32 port = 7;
+    string public_key_fingerprint = 8;
+    Capabilities capabilities = 9;
+}
+
+enum DeviceType {
+    UNKNOWN = 0;
+    PHONE = 1;
+    TABLET = 2;
+    PC = 3;
+    TV = 4;
+    WEARABLE = 5;
+}
+
+message Capabilities {
+    bool file_transfer = 1;
+    bool screen_mirror = 2;
+    bool remote_control = 3;
+    bool clipboard_sync = 4;
+}
+
+// ============================================================
+// Pairing Protocol
+// ============================================================
+message PairingRequest {
+    string pairing_id = 1;
+    DeviceInfo device_info = 2;
+    Capabilities requested_capabilities = 3;
+}
+
+message PairingResponse {
+    string pairing_id = 1;
+    bool accepted = 2;
+    string error_message = 3;
+    Capabilities granted_capabilities = 4;
+}
+
+// ============================================================
+// File Transfer Protocol
+// ============================================================
+message FileManifestRequest {
+    string file_id = 1;
+    string file_name = 2;
+    int64 total_size = 3;
+    string mime_type = 4;
+    int32 chunk_size = 5;
+    int32 total_chunks = 6;
+    repeated ChunkInfo chunks = 7;
+}
+
+message ChunkInfo {
+    int32 index = 1;
+    bytes blake3_hash = 2;
+    int32 size = 3;
+}
+
+message FileManifestResponse {
+    string file_id = 1;
+    bool accepted = 2;
+    repeated int32 already_have_chunks = 3;
+    TransferErrorReason error_reason = 4;
+}
+
+message TransferError {
+    string file_id = 1;
+    int32 error_code = 2;
+    string message = 3;
+}
+
+enum TransferErrorReason {
+    NONE = 0;
+    DISK_FULL = 1;
+    PERMISSION_DENIED = 2;
+    UNSUPPORTED_TYPE = 3;
+    SIZE_LIMIT_EXCEEDED = 4;
+}
+
+// ============================================================
+// Remote Control Protocol
+// ============================================================
+message TouchEvent {
+    uint64 sequence_id = 1;
+    uint64 timestamp_ms = 2;
+    TouchType type = 3;
+    float x = 4;
+    float y = 5;
+    float pressure = 6;
+    float touch_major = 7;
+    int32 pointer_id = 8;
+}
+
+enum TouchType {
+    TOUCH_UNKNOWN = 0;
+    TOUCH_DOWN = 1;
+    TOUCH_MOVE = 2;
+    TOUCH_UP = 3;
+    TOUCH_CANCEL = 4;
+}
+
+message KeyEvent {
+    uint64 sequence_id = 1;
+    uint64 timestamp_ms = 2;
+    KeyEventType type = 3;
+    int32 key_code = 4;
+    string text = 5;
+}
+
+enum KeyEventType {
+    KEY_UNKNOWN = 0;
+    KEY_DOWN = 1;
+    KEY_UP = 2;
+    KEY_TEXT = 3;
+}
+
+message ClipboardContent {
+    uint64 timestamp_ms = 1;
+    oneof content {
+        string text = 2;
+        bytes image_png = 3;
+        string url = 4;
+    }
+}
