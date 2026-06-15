@@ -16,7 +16,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_transfer_service_creation() {
-        let service = TransferService::new();
+        let _service = TransferService::new();
         // Placeholder test
         assert!(true);
     }

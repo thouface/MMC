@@ -6,9 +6,8 @@ use blake3::Hasher;
 use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use zeroize::{Zeroize, Zeroizing};
 
-use crate::{Crypto, Error, KeyPair, Result};
+use crate::{Crypto, KeyPair, Result};
 
 /// Device identity certificate
 #[derive(Debug, Clone, Serialize, Deserialize)]

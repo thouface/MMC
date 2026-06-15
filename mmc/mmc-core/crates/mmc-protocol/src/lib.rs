@@ -430,8 +430,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_write_frame() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
         let (reader, mut writer) = tokio::io::duplex(1024);
 
         let frame = Frame::new(FrameType::Heartbeat, vec![]);

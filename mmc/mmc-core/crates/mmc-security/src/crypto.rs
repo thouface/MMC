@@ -1,11 +1,9 @@
 //! Cryptographic primitives for MMC
 //! Key generation, encryption, hashing
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use ed25519_dalek::Signature;
 use rand::RngCore;
 use zeroize::Zeroizing;
-use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::Error;
 

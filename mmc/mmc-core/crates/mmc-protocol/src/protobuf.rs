@@ -3,7 +3,6 @@
 //! These types provide efficient binary serialization using prost.
 //! Generated from proto/mmc/v1/mmc.proto
 
-use prost::Message;
 use serde::{Deserialize, Serialize};
 
 // Re-export generated types
@@ -81,6 +80,7 @@ impl Default for ProtoKeyEventType {
 mod tests {
     use super::*;
     use bytes::Bytes;
+    use prost::Message;
 
     #[test]
     fn test_device_info_roundtrip() {

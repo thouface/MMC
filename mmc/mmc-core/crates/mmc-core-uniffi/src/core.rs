@@ -193,7 +193,7 @@ impl MmcCore {
         }
 
         let storage = self.storage.read().await;
-        let device = storage
+        let _device = storage
             .as_ref()
             .ok_or(CoreError::StorageFailed("Storage not available".to_string()))?
             .get_device(device_id)
@@ -203,7 +203,7 @@ impl MmcCore {
 
         let file_transfer = self.file_transfer.read().await;
         if let Some(ft) = file_transfer.as_ref() {
-            let manifest = ft
+            let _manifest = ft
                 .compute_manifest(file_path, 1024 * 1024)
                 .await
                 .map_err(|e| CoreError::TransferFailed(e.to_string()))?;

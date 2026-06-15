@@ -136,7 +136,7 @@
 ### 3.2 代码质量
 
 *   所有 62 个测试用例通过，无失败测试
-*   仅存在未使用的导入/变量警告，不影响功能正确性
+*   编译无警告（unused imports/variables 已全部清理）
 *   新增测试覆盖：
     *   关键数据结构字段验证 (DeviceInfo, ChunkManifest, PairedDevice 等)
     *   枚举变体穷举 (DeviceType, TransferState, Capabilities)
