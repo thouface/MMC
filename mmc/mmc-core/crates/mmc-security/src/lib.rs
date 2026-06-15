@@ -11,5 +11,5 @@ pub use crypto::{Crypto, KeyPair};
 pub use error::{Error, Result};
 pub use tls::{
     CipherSuite, ClientHello, Finished, HandshakeMode, HandshakeSession, HandshakeState,
-    ServerHello, TlsHandshake,
+    ServerHello, TlsChannel, TlsConnection, TlsHandshake, TlsRecord,
 };

@@ -107,7 +107,7 @@
 | test_ping_pong_json_roundtrip | Ping/Pong 消息 JSON 往返 | ✅ |
 | test_clipboard_content_json_roundtrip | ClipboardContent JSON 往返 | ✅ |
 
-### 2.7 mmc-security (18 tests)
+### 2.7 mmc-security (35 tests)
 
 | 测试用例 | 描述 | 状态 |
 |----------|------|------|
@@ -129,6 +129,23 @@
 | test_invalid_state_transition | 状态机错误转换检测 | ✅ |
 | test_finished_verify_data_mismatch | Finished 验证数据不匹配检测 | ✅ |
 | test_local_public_key_changes | 每次握手临时密钥唯一 | ✅ |
+| test_derive_nonce_uniqueness | Nonce 派生唯一性 | ✅ |
+| test_derive_application_key_different_labels | 双向应用密钥隔离 | ✅ |
+| test_tls_connection_creation | TLS 连接创建 | ✅ |
+| test_tls_connection_requires_complete_handshake | 握手未完成时连接创建失败 | ✅ |
+| test_tls_encrypt_decrypt_roundtrip | ChaCha20-Poly1305 加解密 | ✅ |
+| test_tls_multiple_records | 多记录顺序处理 | ✅ |
+| test_tls_replay_attack_prevention | 重放攻击防护 | ✅ |
+| test_tls_tampered_ciphertext_rejected | 篡改密文拒绝 | ✅ |
+| test_tls_channel_client | 客户端 TLS 通道 | ✅ |
+| test_tls_channel_server | 服务端 TLS 通道 | ✅ |
+| test_tls_bidirectional_communication | 双向加密通信 | ✅ |
+| test_tls_sequence_increments | 序列号单调递增 | ✅ |
+| test_tls_reset_sequences | 序列号重置 | ✅ |
+| test_tls_peer_certificate_access | 对端证书访问 | ✅ |
+| test_tls_record_serialization | TLS 记录序列化 | ✅ |
+| test_tls_empty_plaintext | 空明文加解密 | ✅ |
+| test_tls_large_message | 64KB 大消息加解密 | ✅ |
 
 ---
 
@@ -144,12 +161,12 @@
 | mmc-pairing | 9 | 9 | 0 |
 | mmc-storage | 9 | 9 | 0 |
 | mmc-protocol | 11 | 11 | 0 |
-| mmc-security | 18 | 18 | 0 |
-| **总计** | **76** | **76** | **0** |
+| mmc-security | 35 | 35 | 0 |
+| **总计** | **93** | **93** | **0** |
 
 ### 3.2 代码质量
 
-*   所有 76 个测试用例通过，无失败测试
+*   所有 93 个测试用例通过，无失败测试
 *   编译无警告（unused imports/variables 已全部清理）
 *   新增测试覆盖：
     *   关键数据结构字段验证 (DeviceInfo, ChunkManifest, PairedDevice 等)

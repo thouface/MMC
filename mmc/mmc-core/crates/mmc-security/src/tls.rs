@@ -178,6 +178,16 @@ impl HandshakeSession {
         self.local_keypair.public_key_bytes()
     }
 
+    /// 计算与对端公开密钥的共享密钥 (调试用)
+    pub fn compute_shared_secret(&self, peer_public: &[u8; 32]) -> Result<[u8; 32]> {
+        self.local_keypair.shared_secret(peer_public)
+    }
+
+    /// 获取客户端随机数 (仅客户端有效)
+    pub fn client_random_value(&self) -> Option<[u8; 32]> {
+        self.client_random
+    }
+
     /// 获取本地证书
     pub fn local_certificate(&self) -> &Certificate {
         &self.local_cert
@@ -284,9 +294,9 @@ impl HandshakeSession {
             self.handshake_secret.as_ref().unwrap(),
         )?);
 
-        // 服务端处理完 ClientHello 并准备 ServerHello 后，等待客户端 Finished
-        // 状态应转为 FinishedSent 表示服务端已发送自己的 Finished
-        self.state = HandshakeState::FinishedSent;
+        // 服务端处理完 ClientHello 后状态保持为 ServerHelloReceived
+        // 直到它 create_finished 才会转为 FinishedSent
+        self.state = HandshakeState::ServerHelloReceived;
 
         Ok(ServerHello {
             legacy_version: 0x0304,
@@ -359,7 +369,7 @@ impl HandshakeSession {
             .handshake_secret
             .ok_or_else(|| Error::TlsHandshake("Missing handshake secret".to_string()))?;
 
-        // 计算验证数据
+        // 使用本地证书计算验证数据 (接收方将用对端证书=本端 cert 验证)
         let verify_data = compute_verify_data(&handshake_secret, &self.local_cert)?;
 
         self.state = HandshakeState::FinishedSent;
@@ -373,7 +383,7 @@ impl HandshakeSession {
     pub fn process_finished(&mut self, finished: &Finished) -> Result<()> {
         match self.mode {
             HandshakeMode::Client => {
-                if self.state != HandshakeState::ServerHelloReceived {
+                if self.state != HandshakeState::FinishedSent {
                     return Err(Error::TlsHandshake(format!(
                         "Invalid client state for Finished: {:?}",
                         self.state
@@ -381,7 +391,10 @@ impl HandshakeSession {
                 }
             }
             HandshakeMode::Server => {
-                if self.state != HandshakeState::FinishedSent {
+                // 服务端可能处于 ServerHelloReceived (未发送自己的 Finished) 或 FinishedSent
+                if self.state != HandshakeState::ServerHelloReceived
+                    && self.state != HandshakeState::FinishedSent
+                {
                     return Err(Error::TlsHandshake(format!(
                         "Invalid server state for Finished: {:?}",
                         self.state
@@ -394,12 +407,11 @@ impl HandshakeSession {
             .handshake_secret
             .ok_or_else(|| Error::TlsHandshake("Missing handshake secret".to_string()))?;
 
+        // 验证对端的验证数据: 用对端证书 (=发送方 local_cert) 计算期望
         let peer_cert = self
             .peer_cert
             .as_ref()
             .ok_or_else(|| Error::TlsHandshake("Missing peer cert".to_string()))?;
-
-        // 验证对端的验证数据
         let expected = compute_verify_data(&handshake_secret, peer_cert)?;
         if expected != finished.verify_data {
             self.state = HandshakeState::Failed;
@@ -453,6 +465,37 @@ fn compute_verify_data(handshake_secret: &[u8; 32], cert: &Certificate) -> Resul
     hasher.update(cert.device_id.as_bytes());
     hasher.update(cert.public_key.as_bytes());
     Ok(*hasher.finalize().as_bytes())
+}
+
+/// 派生应用数据密钥 (基于主密钥)
+fn derive_application_key(master_secret: &[u8; 32], label: &[u8]) -> Result<[u8; 32]> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"mmc tls 1.3 app key");
+    hasher.update(master_secret);
+    hasher.update(label);
+    Ok(*hasher.finalize().as_bytes())
+}
+
+/// 派生 IV (基于应用密钥)
+fn derive_iv(app_key: &[u8; 32]) -> Result<[u8; 12]> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"mmc tls 1.3 iv");
+    hasher.update(app_key);
+    let hash = hasher.finalize();
+    let bytes = hash.as_bytes();
+    let mut iv = [0u8; 12];
+    iv.copy_from_slice(&bytes[..12]);
+    Ok(iv)
+}
+
+/// 派生 nonce (sequence number + IV)
+fn derive_nonce(iv: &[u8; 12], seq: u64) -> [u8; 12] {
+    let mut nonce = *iv;
+    // XOR IV with sequence number (大端)
+    for i in 0..8 {
+        nonce[11 - i] ^= (seq >> (i * 8)) as u8;
+    }
+    nonce
 }
 
 /// 获取当前时间戳（毫秒）
@@ -549,6 +592,261 @@ impl TlsHandshake {
     }
 }
 
+// ============================================================
+// TLS 加密通信层 (基于 BLAKE3 + ChaCha20-Poly1305 风格的密钥流)
+// ============================================================
+
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::{ChaCha20Poly1305, Key};
+
+/// TLS 加密记录 (16 字节 nonce + 16 字节 tag + ciphertext)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsRecord {
+    /// 序列号 (用于防重放)
+    pub sequence: u64,
+    /// 密文 (含 16 字节 Poly1305 tag)
+    pub ciphertext: Vec<u8>,
+}
+
+/// TLS 通信连接 - 在握手完成后提供加密通道
+pub struct TlsConnection {
+    /// 发送密钥 (32 字节)
+    tx_key: [u8; 32],
+    /// 接收密钥 (32 字节)
+    rx_key: [u8; 32],
+    /// 发送 IV
+    tx_iv: [u8; 12],
+    /// 接收 IV
+    rx_iv: [u8; 12],
+    /// 发送序列号
+    tx_seq: u64,
+    /// 接收序列号
+    rx_seq: u64,
+    /// 对端证书
+    peer_cert: Certificate,
+    /// 关联的握手会话 (用于获取元数据)
+    handshake_complete: bool,
+}
+
+impl TlsConnection {
+    /// 从已完成的握手会话创建 TLS 连接
+    pub fn from_handshake(session: &HandshakeSession, is_client: bool) -> Result<Self> {
+        if !session.is_complete() {
+            return Err(Error::TlsHandshakeIncomplete);
+        }
+
+        let master_secret = session
+            .master_secret()
+            .ok_or_else(|| Error::TlsHandshake("Missing master secret".to_string()))?;
+
+        let peer_cert = session
+            .peer_certificate()
+            .ok_or_else(|| Error::TlsHandshake("Missing peer certificate".to_string()))?
+            .clone();
+
+        // 根据角色派生不同的发送/接收密钥
+        let (tx_key, rx_key) = if is_client {
+            (
+                derive_application_key(&master_secret, b"client tx key")?,
+                derive_application_key(&master_secret, b"server tx key")?,
+            )
+        } else {
+            (
+                derive_application_key(&master_secret, b"server tx key")?,
+                derive_application_key(&master_secret, b"client tx key")?,
+            )
+        };
+
+        let tx_iv = derive_iv(&tx_key)?;
+        let rx_iv = derive_iv(&rx_key)?;
+
+        Ok(Self {
+            tx_key,
+            rx_key,
+            tx_iv,
+            rx_iv,
+            tx_seq: 0,
+            rx_seq: 0,
+            peer_cert,
+            handshake_complete: true,
+        })
+    }
+
+    /// 加密数据 (发送)
+    pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<TlsRecord> {
+        if !self.handshake_complete {
+            return Err(Error::TlsHandshakeIncomplete);
+        }
+
+        let nonce = derive_nonce(&self.tx_iv, self.tx_seq);
+        let aad = self.tx_seq.to_be_bytes();
+
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&self.tx_key));
+        let nonce_arr = chacha20poly1305::Nonce::from_slice(&nonce);
+
+        let ciphertext = cipher
+            .encrypt(
+                nonce_arr,
+                Payload {
+                    msg: plaintext,
+                    aad: &aad,
+                },
+            )
+            .map_err(|e| Error::Crypto(format!("Encryption failed: {}", e)))?;
+
+        let record = TlsRecord {
+            sequence: self.tx_seq,
+            ciphertext,
+        };
+        self.tx_seq += 1;
+        Ok(record)
+    }
+
+    /// 解密数据 (接收)
+    /// 使用 peer_key 解密 (来自对端的消息)
+    pub fn decrypt(&mut self, record: &TlsRecord) -> Result<Vec<u8>> {
+        if !self.handshake_complete {
+            return Err(Error::TlsHandshakeIncomplete);
+        }
+
+        // 防重放：序列号必须单调递增
+        if record.sequence != self.rx_seq {
+            return Err(Error::InvalidTlsMessage(format!(
+                "Out-of-order record: expected {}, got {}",
+                self.rx_seq, record.sequence
+            )));
+        }
+
+        let nonce = derive_nonce(&self.rx_iv, self.rx_seq);
+        let aad = self.rx_seq.to_be_bytes();
+
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&self.rx_key));
+        let nonce_arr = chacha20poly1305::Nonce::from_slice(&nonce);
+
+        let plaintext = cipher
+            .decrypt(
+                nonce_arr,
+                Payload {
+                    msg: &record.ciphertext,
+                    aad: &aad,
+                },
+            )
+            .map_err(|e| Error::Crypto(format!("Decryption failed: {}", e)))?;
+
+        self.rx_seq += 1;
+        Ok(plaintext)
+    }
+
+    /// 解密自己加密的消息 (用于测试/环回)
+    pub fn decrypt_local(&mut self, record: &TlsRecord) -> Result<Vec<u8>> {
+        if !self.handshake_complete {
+            return Err(Error::TlsHandshakeIncomplete);
+        }
+        if record.sequence != self.rx_seq {
+            return Err(Error::InvalidTlsMessage(format!(
+                "Out-of-order record: expected {}, got {}",
+                self.rx_seq, record.sequence
+            )));
+        }
+        let nonce = derive_nonce(&self.tx_iv, self.rx_seq);
+        let aad = self.rx_seq.to_be_bytes();
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&self.tx_key));
+        let nonce_arr = chacha20poly1305::Nonce::from_slice(&nonce);
+        let plaintext = cipher
+            .decrypt(
+                nonce_arr,
+                Payload {
+                    msg: &record.ciphertext,
+                    aad: &aad,
+                },
+            )
+            .map_err(|e| Error::Crypto(format!("Decryption failed: {}", e)))?;
+        self.rx_seq += 1;
+        Ok(plaintext)
+    }
+
+    /// 获取发送序列号
+    pub fn tx_sequence(&self) -> u64 {
+        self.tx_seq
+    }
+
+    /// 获取接收序列号
+    pub fn rx_sequence(&self) -> u64 {
+        self.rx_seq
+    }
+
+    /// 获取对端证书
+    pub fn peer_certificate(&self) -> &Certificate {
+        &self.peer_cert
+    }
+
+    /// 握手是否完成
+    pub fn is_ready(&self) -> bool {
+        self.handshake_complete
+    }
+
+    /// 重置序列号 (用于会话恢复)
+    pub fn reset_sequences(&mut self) {
+        self.tx_seq = 0;
+        self.rx_seq = 0;
+    }
+}
+
+/// TLS 双向通道 (一端持有客户端连接，对端持有服务端连接)
+pub struct TlsChannel {
+    /// 本地连接
+    local: TlsConnection,
+    /// 远端序列号期望 (用于服务端验证)
+    is_client: bool,
+}
+
+impl TlsChannel {
+    /// 创建客户端通道
+    pub fn new_client(client_conn: TlsConnection) -> Self {
+        Self {
+            local: client_conn,
+            is_client: true,
+        }
+    }
+
+    /// 创建服务端通道
+    pub fn new_server(server_conn: TlsConnection) -> Self {
+        Self {
+            local: server_conn,
+            is_client: false,
+        }
+    }
+
+    /// 发送加密消息
+    pub fn send(&mut self, data: &[u8]) -> Result<TlsRecord> {
+        self.local.encrypt(data)
+    }
+
+    /// 接收并解密消息 (来自对端)
+    pub fn receive(&mut self, record: &TlsRecord) -> Result<Vec<u8>> {
+        self.local.decrypt(record)
+    }
+
+    /// 接收并解密消息 (环回/自己加密的消息)
+    pub fn receive_local(&mut self, record: &TlsRecord) -> Result<Vec<u8>> {
+        self.local.decrypt_local(record)
+    }
+
+    /// 双向加密传输 (发送 -> 接收验证)
+    pub fn roundtrip(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        let record = self.send(data)?;
+        self.receive(&record)
+    }
+
+    pub fn local(&self) -> &TlsConnection {
+        &self.local
+    }
+
+    pub fn is_client(&self) -> bool {
+        self.is_client
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,8 +900,8 @@ mod tests {
 
         let server_hello = session.process_client_hello(&client_hello).unwrap();
         assert_eq!(server_hello.cipher_suite, CipherSuite::TlsAes256GcmSha384);
-        // 服务端处理完 ClientHello 后进入 FinishedSent 状态，等待客户端的 Finished
-        assert_eq!(session.state(), HandshakeState::FinishedSent);
+        // 服务端处理完 ClientHello 后状态为 ServerHelloReceived，等待 create_finished
+        assert_eq!(session.state(), HandshakeState::ServerHelloReceived);
         assert!(session.handshake_secret().is_some());
         assert!(session.master_secret().is_some());
     }
@@ -723,5 +1021,276 @@ mod tests {
 
         // 不同的会话应有不同的临时密钥对
         assert_ne!(s1.local_public_key(), s2.local_public_key());
+    }
+
+    // ============================================================
+    // TLS 加密通信层测试
+    // ============================================================
+
+    fn make_completed_handshake() -> (HandshakeSession, HandshakeSession, Certificate, Certificate) {
+        let client_cert = make_test_cert("client-1");
+        let server_cert = make_test_cert("server-1");
+
+        // 客户端
+        let mut client = HandshakeSession::new_client(client_cert.clone());
+        client.create_client_hello().unwrap();
+
+        // 服务端
+        let mut server = HandshakeSession::new_server(server_cert.clone());
+        // 使用客户端真实的 client_random
+        let client_random_value = client.client_random_value().unwrap();
+        let client_hello = ClientHello {
+            legacy_version: 0x0304,
+            random: client_random_value,
+            session_id: Vec::new(),
+            cipher_suites: vec![CipherSuite::TlsAes256GcmSha384],
+            key_share: client.local_public_key(),
+            certificate: client.local_certificate().clone(),
+        };
+        let server_hello = server.process_client_hello(&client_hello).unwrap();
+        client.process_server_hello(&server_hello).unwrap();
+
+        // 验证两边 handshake_secret 一致
+        assert_eq!(
+            client.handshake_secret().unwrap(),
+            server.handshake_secret().unwrap(),
+            "Handshake secrets should match"
+        );
+
+        // 服务端创建自己的 Finished
+        let server_finished = server.create_finished().unwrap();
+
+        // 客户端创建自己的 Finished
+        let client_finished = client.create_finished().unwrap();
+
+        // 双方处理对方 Finished
+        server.process_finished(&client_finished).unwrap();
+        client.process_finished(&server_finished).unwrap();
+
+        (client, server, client_cert, server_cert)
+    }
+
+    #[test]
+    fn test_tls_connection_creation() {
+        let (client, _, _, _) = make_completed_handshake();
+        let conn = TlsConnection::from_handshake(&client, true).unwrap();
+        assert!(conn.is_ready());
+        assert_eq!(conn.tx_sequence(), 0);
+        assert_eq!(conn.rx_sequence(), 0);
+    }
+
+    #[test]
+    fn test_tls_connection_requires_complete_handshake() {
+        let client_cert = make_test_cert("client-1");
+        let session = HandshakeSession::new_client(client_cert);
+        let result = TlsConnection::from_handshake(&session, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tls_encrypt_decrypt_roundtrip() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        let plaintext = b"Hello, secure world!";
+        let record = conn.encrypt(plaintext).unwrap();
+
+        assert_eq!(record.sequence, 0);
+        assert_ne!(record.ciphertext, plaintext);
+        assert_eq!(conn.tx_sequence(), 1);
+
+        // 单连接内自发自收 (环回)
+        let decrypted = conn.decrypt_local(&record).unwrap();
+        assert_eq!(decrypted, plaintext);
+        assert_eq!(conn.rx_sequence(), 1);
+    }
+
+    #[test]
+    fn test_tls_multiple_records() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        let messages = vec![b"first".to_vec(), b"second".to_vec(), b"third".to_vec()];
+
+        let mut records = Vec::new();
+        for msg in &messages {
+            let r = conn.encrypt(msg).unwrap();
+            records.push(r);
+        }
+
+        for (i, r) in records.iter().enumerate() {
+            let decrypted = conn.decrypt_local(r).unwrap();
+            assert_eq!(decrypted, messages[i]);
+        }
+
+        assert_eq!(conn.tx_sequence(), 3);
+        assert_eq!(conn.rx_sequence(), 3);
+    }
+
+    #[test]
+    fn test_tls_replay_attack_prevention() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        let record1 = conn.encrypt(b"msg1").unwrap();
+        let _ = conn.decrypt_local(&record1).unwrap();
+
+        // 尝试重放 record1 (序列号 0，但期望序列号是 1)
+        let result = conn.decrypt_local(&record1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tls_tampered_ciphertext_rejected() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        let mut record = conn.encrypt(b"original").unwrap();
+        // 篡改密文
+        if let Some(byte) = record.ciphertext.get_mut(0) {
+            *byte ^= 0xFF;
+        }
+
+        let result = conn.decrypt_local(&record);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tls_channel_client() {
+        let (client, _, _, _) = make_completed_handshake();
+        let conn = TlsConnection::from_handshake(&client, true).unwrap();
+        let mut channel = TlsChannel::new_client(conn);
+
+        assert!(channel.is_client());
+        let data = b"channel test";
+        let record = channel.send(data).unwrap();
+        let decrypted = channel.receive_local(&record).unwrap();
+        assert_eq!(decrypted, data);
+    }
+
+    #[test]
+    fn test_tls_channel_server() {
+        let (_, server, _, _) = make_completed_handshake();
+        let conn = TlsConnection::from_handshake(&server, false).unwrap();
+        let mut channel = TlsChannel::new_server(conn);
+
+        assert!(!channel.is_client());
+        let data = b"server channel test";
+        let record = channel.send(data).unwrap();
+        let decrypted = channel.receive_local(&record).unwrap();
+        assert_eq!(decrypted, data);
+    }
+
+    #[test]
+    fn test_tls_bidirectional_communication() {
+        // 模拟客户端和服务端之间加密通信
+        let (client_session, server_session, _, _) = make_completed_handshake();
+
+        let mut client_conn = TlsConnection::from_handshake(&client_session, true).unwrap();
+        let mut server_conn = TlsConnection::from_handshake(&server_session, false).unwrap();
+
+        // 客户端发送 -> 模拟服务端接收 (使用 client 的发送密钥 + server 的接收密钥应一致)
+        let client_msg = b"Hello from client";
+        let client_record = client_conn.encrypt(client_msg).unwrap();
+
+        // 客户端的密文不能用客户端的 rx_key 解密（双向不同密钥）
+        assert!(client_conn.decrypt(&client_record).is_err());
+
+        // 服务端使用它的 rx_key (与 client 的 tx_key 对称) 解密客户端消息
+        // 客户端 tx_key = "client tx key" 派生的密钥
+        // 服务端 rx_key = "client tx key" 派生的密钥 (对称)
+        let server_decrypted = server_conn.decrypt(&client_record);
+        assert!(server_decrypted.is_ok(), "Server should decrypt client message");
+        assert_eq!(server_decrypted.unwrap(), client_msg);
+    }
+
+    #[test]
+    fn test_tls_sequence_increments() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        assert_eq!(conn.tx_sequence(), 0);
+        conn.encrypt(b"a").unwrap();
+        assert_eq!(conn.tx_sequence(), 1);
+        conn.encrypt(b"b").unwrap();
+        assert_eq!(conn.tx_sequence(), 2);
+    }
+
+    #[test]
+    fn test_tls_reset_sequences() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        conn.encrypt(b"x").unwrap();
+        conn.encrypt(b"y").unwrap();
+        assert_eq!(conn.tx_sequence(), 2);
+
+        conn.reset_sequences();
+        assert_eq!(conn.tx_sequence(), 0);
+        assert_eq!(conn.rx_sequence(), 0);
+    }
+
+    #[test]
+    fn test_tls_peer_certificate_access() {
+        let (client, _, _, _) = make_completed_handshake();
+        let conn = TlsConnection::from_handshake(&client, true).unwrap();
+        let peer = conn.peer_certificate();
+        assert_eq!(peer.device_id, "server-1");
+    }
+
+    #[test]
+    fn test_tls_record_serialization() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        let record = conn.encrypt(b"serialize me").unwrap();
+        let json = serde_json::to_vec(&record).unwrap();
+        let decoded: TlsRecord = serde_json::from_slice(&json).unwrap();
+        assert_eq!(decoded.sequence, record.sequence);
+        assert_eq!(decoded.ciphertext, record.ciphertext);
+    }
+
+    #[test]
+    fn test_tls_empty_plaintext() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        let record = conn.encrypt(b"").unwrap();
+        // 即使明文为空，密文也包含 16 字节 tag
+        assert!(record.ciphertext.len() >= 16);
+        let decrypted = conn.decrypt_local(&record).unwrap();
+        assert!(decrypted.is_empty());
+    }
+
+    #[test]
+    fn test_tls_large_message() {
+        let (client, _, _, _) = make_completed_handshake();
+        let mut conn = TlsConnection::from_handshake(&client, true).unwrap();
+
+        let large_data = vec![0xABu8; 65536]; // 64KB
+        let record = conn.encrypt(&large_data).unwrap();
+        let decrypted = conn.decrypt_local(&record).unwrap();
+        assert_eq!(decrypted, large_data);
+    }
+
+    #[test]
+    fn test_derive_nonce_uniqueness() {
+        // 使用零 IV 验证 nonce 派生
+        let iv = [0u8; 12];
+        let n0 = derive_nonce(&iv, 0);
+        let n1 = derive_nonce(&iv, 1);
+        let n2 = derive_nonce(&iv, 2);
+
+        assert_ne!(n0, n1);
+        assert_ne!(n1, n2);
+        assert_ne!(n0, n2);
+    }
+
+    #[test]
+    fn test_derive_application_key_different_labels() {
+        let master = [42u8; 32];
+        let k1 = derive_application_key(&master, b"client tx key").unwrap();
+        let k2 = derive_application_key(&master, b"server tx key").unwrap();
+        assert_ne!(k1, k2);
     }
 }
