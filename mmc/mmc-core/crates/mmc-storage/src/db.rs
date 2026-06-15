@@ -332,14 +332,114 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_update_last_connected() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        let db = Database::open(&db_path).await.unwrap();
+
+        // Save a device
+        let device = PairedDevice {
+            device_id: "device-456".to_string(),
+            device_name: "Test Tablet".to_string(),
+            device_type: DeviceType::Tablet,
+            os_version: "iOS 17".to_string(),
+            app_version: "1.0.0".to_string(),
+            ip_address: "192.168.1.200".to_string(),
+            port: 9090,
+            public_key_fingerprint: "xyz789".to_string(),
+            paired_at: chrono::Utc::now().timestamp(),
+            last_connected_at: None,
+            trust_level: 1,
+        };
+
+        db.save_paired_device(&device).await.unwrap();
+
+        // Update last connected
+        db.update_last_connected("device-456").await.unwrap();
+
+        // Retrieve and check
+        let retrieved = db.get_paired_device("device-456").await.unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert!(retrieved.last_connected_at.is_some());
+        assert!(retrieved.last_connected_at.unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_devices() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        let db = Database::open(&db_path).await.unwrap();
+
+        // Save multiple devices
+        for i in 0..3 {
+            let device = PairedDevice {
+                device_id: format!("device-{}", i),
+                device_name: format!("Device {}", i),
+                device_type: DeviceType::Phone,
+                os_version: "Android 13".to_string(),
+                app_version: "1.0.0".to_string(),
+                ip_address: format!("192.168.1.{}", 100 + i),
+                port: 8080 + i as u16,
+                public_key_fingerprint: format!("fingerprint-{}", i),
+                paired_at: chrono::Utc::now().timestamp(),
+                last_connected_at: None,
+                trust_level: 1,
+            };
+            db.save_paired_device(&device).await.unwrap();
+        }
+
+        // Count
+        let devices = db.list_paired_devices().await.unwrap();
+        assert_eq!(devices.len(), 3);
+
+        // Individual lookups
+        for i in 0..3 {
+            let id = format!("device-{}", i);
+            let retrieved = db.get_paired_device(&id).await.unwrap();
+            assert!(retrieved.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_device() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).await.unwrap();
+
+        let result = db.get_paired_device("nonexistent").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_device_type_variants() {
+        assert_eq!(DeviceType::from("phone"), DeviceType::Phone);
+        assert_eq!(DeviceType::from("tablet"), DeviceType::Tablet);
+        assert_eq!(DeviceType::from("tv"), DeviceType::Tv);
+        assert_eq!(DeviceType::from("wearable"), DeviceType::Wearable);
+    }
+
+    #[tokio::test]
     async fn test_config_operations() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
 
         let db = Database::open(&db_path).await.unwrap();
 
+        // Missing config
+        let missing = db.get_config("missing").await.unwrap();
+        assert!(missing.is_none());
+
+        // Save and get
         db.save_config("device_name", "My Device").await.unwrap();
         let value = db.get_config("device_name").await.unwrap();
         assert_eq!(value, Some("My Device".to_string()));
+
+        // Update
+        db.save_config("device_name", "Updated Device").await.unwrap();
+        let value = db.get_config("device_name").await.unwrap();
+        assert_eq!(value, Some("Updated Device".to_string()));
     }
 }

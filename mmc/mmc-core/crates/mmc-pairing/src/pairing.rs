@@ -272,9 +272,130 @@ impl Default for PairingService {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_pairing_result_variants() {
+        let success = PairingResult::Success {
+            device_id: "d-1".to_string(),
+            device_name: "Test Device".to_string(),
+            shared_secret: [0u8; 32],
+        };
+        match success {
+            PairingResult::Success { device_id, .. } => {
+                assert_eq!(device_id, "d-1");
+            }
+            _ => panic!("Expected Success variant"),
+        }
+
+        let rejected = PairingResult::Rejected {
+            pairing_id: "p-1".to_string(),
+            reason: "test reason".to_string(),
+        };
+        match rejected {
+            PairingResult::Rejected { pairing_id, .. } => {
+                assert_eq!(pairing_id, "p-1");
+            }
+            _ => panic!("Expected Rejected variant"),
+        }
+
+        let error = PairingResult::Error {
+            pairing_id: "p-2".to_string(),
+            error: "test error".to_string(),
+        };
+        match error {
+            PairingResult::Error { error, .. } => {
+                assert_eq!(error, "test error");
+            }
+            _ => panic!("Expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn test_capabilities_default() {
+        let caps: Capabilities = Capabilities::default();
+        assert!(!caps.file_transfer);
+        assert!(!caps.screen_mirror);
+        assert!(!caps.remote_control);
+        assert!(!caps.clipboard_sync);
+    }
+
+    #[test]
+    fn test_capabilities_all() {
+        let caps = Capabilities {
+            file_transfer: true,
+            screen_mirror: true,
+            remote_control: true,
+            clipboard_sync: true,
+        };
+        assert!(caps.file_transfer);
+        assert!(caps.screen_mirror);
+        assert!(caps.remote_control);
+        assert!(caps.clipboard_sync);
+    }
+
+    #[test]
+    fn test_pairing_state() {
+        let state = PairingState::Idle;
+        match state {
+            PairingState::Idle => {}
+            _ => panic!("Expected Idle"),
+        }
+
+        let state = PairingState::Connected;
+        match state {
+            PairingState::Connected => {}
+            _ => panic!("Expected Connected"),
+        }
+
+        let state = PairingState::Failed("test".to_string());
+        match state {
+            PairingState::Failed(msg) => {
+                assert_eq!(msg, "test");
+            }
+            _ => panic!("Expected Failed"),
+        }
+    }
+
+    #[test]
+    fn test_pairing_state_waiting() {
+        let state = PairingState::WaitingForConfirmation("pair-1".to_string());
+        match state {
+            PairingState::WaitingForConfirmation(id) => {
+                assert_eq!(id, "pair-1");
+            }
+            _ => panic!("Expected WaitingForConfirmation"),
+        }
+    }
+
     #[tokio::test]
     async fn test_pairing_service_creation() {
         let mut service = PairingService::new();
         assert!(service.init("test-device", "Test Device").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pairing_service_events_subscribe() {
+        let service = PairingService::new();
+        let events = service.events();
+        // Ensure events receiver can be created
+        let _ = events;
+        assert!(true);
+    }
+
+    #[test]
+    fn test_pairing_request_struct() {
+        let request = PairingRequest {
+            pairing_id: "p-1".to_string(),
+            device_id: "d-1".to_string(),
+            device_name: "Test Device".to_string(),
+            public_key: "abc123".to_string(),
+            capabilities: Capabilities {
+                file_transfer: true,
+                screen_mirror: false,
+                remote_control: false,
+                clipboard_sync: false,
+            },
+        };
+        assert_eq!(request.pairing_id, "p-1");
+        assert!(request.capabilities.file_transfer);
     }
 }

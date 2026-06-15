@@ -381,7 +381,6 @@ mod tests {
     async fn test_compute_manifest() {
         let service = TransferService::new();
 
-        // Create temp file
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
         tokio::fs::write(&file_path, b"hello world")
@@ -394,6 +393,30 @@ mod tests {
         assert_eq!(manifest.total_size, 11);
         assert_eq!(manifest.total_chunks, 1);
         assert_eq!(manifest.chunks.len(), 1);
+        assert_eq!(manifest.chunks[0].index, 0);
+        assert_eq!(manifest.chunks[0].size, 11);
+    }
+
+    #[tokio::test]
+    async fn test_compute_manifest_multi_chunk() {
+        let service = TransferService::new();
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("large.txt");
+
+        let data: Vec<u8> = (0..300).map(|_| b'x').collect();
+        tokio::fs::write(&file_path, &data).await.unwrap();
+
+        let manifest = service.compute_manifest(&file_path, 100).await.unwrap();
+
+        assert_eq!(manifest.total_size, 300);
+        assert_eq!(manifest.total_chunks, 3);
+        assert_eq!(manifest.chunks.len(), 3);
+
+        for i in 0..3 {
+            assert_eq!(manifest.chunks[i].index, i as u32);
+            assert_eq!(manifest.chunks[i].size, 100);
+        }
     }
 
     #[tokio::test]
@@ -407,5 +430,89 @@ mod tests {
         progress.complete();
         assert_eq!(progress.state, TransferState::Completed);
         assert_eq!(progress.bytes_transferred, 1000);
+    }
+
+    #[tokio::test]
+    async fn test_transfer_progress_zero_total() {
+        let progress = TransferProgress::new("task-1".to_string(), 0);
+        assert_eq!(progress.percent(), 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_transfer_progress_fail() {
+        let mut progress = TransferProgress::new("task-1".to_string(), 500);
+        progress.update(250, 500);
+        assert_eq!(progress.percent(), 50.0);
+
+        progress.fail();
+        assert_eq!(progress.state, TransferState::Failed);
+    }
+
+    #[tokio::test]
+    async fn test_transfer_state_default() {
+        let state: TransferState = TransferState::default();
+        assert_eq!(state, TransferState::Idle);
+    }
+
+    #[tokio::test]
+    async fn test_cancel_transfer() {
+        let service = TransferService::new();
+        let result = service.cancel("nonexistent").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_tasks_empty() {
+        let service = TransferService::new();
+        let tasks = service.get_tasks().await;
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_chunk_info_fields() {
+        let info = ChunkInfo {
+            index: 5,
+            hash: [0u8; 32],
+            size: 100,
+        };
+        assert_eq!(info.index, 5);
+        assert_eq!(info.size, 100);
+    }
+
+    #[tokio::test]
+    async fn test_chunk_manifest_fields() {
+        let manifest = ChunkManifest {
+            file_id: "f-1".to_string(),
+            file_name: "test.txt".to_string(),
+            total_size: 500,
+            chunk_size: 100,
+            total_chunks: 5,
+            chunks: vec![],
+        };
+
+        assert_eq!(manifest.file_id, "f-1");
+        assert_eq!(manifest.total_size, 500);
+        assert_eq!(manifest.total_chunks, 5);
+        assert_eq!(manifest.chunk_size, 100);
+    }
+
+    #[tokio::test]
+    async fn test_transfer_task_fields() {
+        let task = TransferTask {
+            task_id: "task-1".to_string(),
+            file_id: "file-1".to_string(),
+            file_name: "test.txt".to_string(),
+            total_size: 1000,
+            chunk_size: 256,
+            total_chunks: 4,
+            state: TransferState::Idle,
+            progress: TransferProgress::new("task-1".to_string(), 1000),
+            created_at: chrono::Utc::now().timestamp(),
+        };
+
+        assert_eq!(task.task_id, "task-1");
+        assert_eq!(task.total_chunks, 4);
+        assert_eq!(task.state, TransferState::Idle);
+        assert!(task.created_at > 0);
     }
 }

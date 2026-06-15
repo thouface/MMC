@@ -28,6 +28,19 @@ impl Default for DeviceType {
     }
 }
 
+impl std::fmt::Display for DeviceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unknown => write!(f, "unknown"),
+            Self::Phone => write!(f, "phone"),
+            Self::Tablet => write!(f, "tablet"),
+            Self::Pc => write!(f, "pc"),
+            Self::Tv => write!(f, "tv"),
+            Self::Wearable => write!(f, "wearable"),
+        }
+    }
+}
+
 impl From<&str> for DeviceType {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
@@ -292,9 +305,107 @@ mod tests {
         assert_eq!(DeviceType::from("unknown_type"), DeviceType::Unknown);
     }
 
+    #[test]
+    fn test_device_type_display() {
+        assert_eq!(format!("{}", DeviceType::Phone), "phone");
+        assert_eq!(format!("{}", DeviceType::Pc), "pc");
+        assert_eq!(format!("{}", DeviceType::Unknown), "unknown");
+    }
+
+    #[test]
+    fn test_device_type_default() {
+        let t: DeviceType = Default::default();
+        assert_eq!(t, DeviceType::Unknown);
+    }
+
+    #[test]
+    fn test_service_type_constant() {
+        assert_eq!(DiscoveryService::service_type(), "_mmc._tcp.local.");
+    }
+
     #[tokio::test]
     async fn test_discovery_service_creation() {
         let service = DiscoveryService::new();
         assert!(service.is_ok());
+    }
+
+    #[test]
+    fn test_device_info_new_basic() {
+        let txt: HashMap<String, String> = HashMap::from([
+            ("type".to_string(), "phone".to_string()),
+            ("os".to_string(), "Android 13".to_string()),
+            ("ver".to_string(), "1.0.0".to_string()),
+        ]);
+
+        let info = DeviceInfo::new(
+            "device-123._mmc._tcp.local.",
+            "192.168.1.100",
+            8080,
+            &txt,
+        );
+
+        assert_eq!(info.id, "device-123._mmc._tcp.local.");
+        assert_eq!(info.name, "device-123");
+        assert_eq!(info.device_type, DeviceType::Phone);
+        assert_eq!(info.os_version, "Android 13");
+        assert_eq!(info.app_version, "1.0.0");
+        assert_eq!(info.ip, "192.168.1.100");
+        assert_eq!(info.port, 8080);
+        assert!(info.last_seen > 0);
+    }
+
+    #[test]
+    fn test_device_info_new_with_pc_type() {
+        let txt: HashMap<String, String> = HashMap::from([
+            ("type".to_string(), "pc".to_string()),
+            ("os".to_string(), "Windows 11".to_string()),
+            ("ver".to_string(), "1.0.0".to_string()),
+        ]);
+
+        let info = DeviceInfo::new(
+            "desktop-abc._mmc._tcp.local.",
+            "192.168.1.50",
+            9090,
+            &txt,
+        );
+
+        assert_eq!(info.device_type, DeviceType::Pc);
+        assert_eq!(info.name, "desktop-abc");
+    }
+
+    #[test]
+    fn test_device_info_new_default_values() {
+        let txt: HashMap<String, String> = HashMap::new();
+
+        let info = DeviceInfo::new(
+            "unknown-device",
+            "127.0.0.1",
+            8080,
+            &txt,
+        );
+
+        assert_eq!(info.device_type, DeviceType::Unknown);
+        assert!(info.os_version.is_empty());
+        assert!(info.app_version.is_empty());
+    }
+
+    #[test]
+    fn test_device_expiration() {
+        let txt: HashMap<String, String> = HashMap::new();
+        let info = DeviceInfo::new("test", "127.0.0.1", 8080, &txt);
+
+        let device = Device {
+            info,
+            last_seen_instant: Instant::now(),
+        };
+
+        assert!(!device.is_expired(60));
+    }
+
+    #[tokio::test]
+    async fn test_get_discovered_empty() {
+        let service = DiscoveryService::new().unwrap();
+        let devices = service.get_discovered().await;
+        assert!(devices.is_empty());
     }
 }
