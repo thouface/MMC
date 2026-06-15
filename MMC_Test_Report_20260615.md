@@ -107,7 +107,7 @@
 | test_ping_pong_json_roundtrip | Ping/Pong 消息 JSON 往返 | ✅ |
 | test_clipboard_content_json_roundtrip | ClipboardContent JSON 往返 | ✅ |
 
-### 2.7 mmc-security (7 tests)
+### 2.7 mmc-security (18 tests)
 
 | 测试用例 | 描述 | 状态 |
 |----------|------|------|
@@ -118,6 +118,17 @@
 | test_random_bytes | 安全随机数生成 | ✅ |
 | test_trust_peer | 对等方信任验证 | ✅ |
 | test_shared_secret | ECDH 共享密钥计算 | ✅ |
+| test_handshake_state_default | TLS 握手状态默认值 | ✅ |
+| test_cipher_suite_default | TLS 密码套件默认值 | ✅ |
+| test_cipher_suite_values | TLS 密码套件枚举值 | ✅ |
+| test_client_hello_creation | 客户端创建 ClientHello | ✅ |
+| test_server_processes_client_hello | 服务端处理 ClientHello | ✅ |
+| test_client_processes_server_hello | 客户端处理 ServerHello | ✅ |
+| test_full_handshake_via_helper | 完整 TLS 1.3 握手 | ✅ |
+| test_server_rejects_invalid_version | 服务端拒绝无效协议版本 | ✅ |
+| test_invalid_state_transition | 状态机错误转换检测 | ✅ |
+| test_finished_verify_data_mismatch | Finished 验证数据不匹配检测 | ✅ |
+| test_local_public_key_changes | 每次握手临时密钥唯一 | ✅ |
 
 ---
 
@@ -133,12 +144,12 @@
 | mmc-pairing | 9 | 9 | 0 |
 | mmc-storage | 9 | 9 | 0 |
 | mmc-protocol | 11 | 11 | 0 |
-| mmc-security | 7 | 7 | 0 |
-| **总计** | **65** | **65** | **0** |
+| mmc-security | 18 | 18 | 0 |
+| **总计** | **76** | **76** | **0** |
 
 ### 3.2 代码质量
 
-*   所有 65 个测试用例通过，无失败测试
+*   所有 76 个测试用例通过，无失败测试
 *   编译无警告（unused imports/variables 已全部清理）
 *   新增测试覆盖：
     *   关键数据结构字段验证 (DeviceInfo, ChunkManifest, PairedDevice 等)

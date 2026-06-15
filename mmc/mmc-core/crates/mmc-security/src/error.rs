@@ -24,6 +24,18 @@ pub enum Error {
 
     #[error("Crypto error: {0}")]
     Crypto(String),
+
+    #[error("TLS handshake failed: {0}")]
+    TlsHandshake(String),
+
+    #[error("TLS handshake not complete")]
+    TlsHandshakeIncomplete,
+
+    #[error("Invalid TLS message: {0}")]
+    InvalidTlsMessage(String),
+
+    #[error("Key derivation failed: {0}")]
+    KeyDerivation(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
