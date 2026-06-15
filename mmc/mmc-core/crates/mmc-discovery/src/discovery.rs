@@ -148,7 +148,7 @@ impl DiscoveryService {
 
         // Spawn async task to handle events
         tokio::spawn(async move {
-            let mut receiver = browser;
+            let receiver = browser;
             while let Ok(event) = receiver.recv_async().await {
                 match event {
                     ServiceEvent::ServiceResolved(info) => {

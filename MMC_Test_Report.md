@@ -2,7 +2,7 @@
 
 **项目名称**: MMC (Multi-device Mesh Control) 核心库原型
 **测试日期**: 2026-06-15
-**测试结果**: 28 tests passed; 0 failed
+**测试结果**: 30 tests passed; 0 failed
 
 ---
 
@@ -20,8 +20,8 @@
 | mmc-pairing | 2 | 2 | ✓ |
 | mmc-file-transfer | 4 | 4 | ✓ |
 | mmc-storage | 5 | 5 | ✓ |
-| mmc-core-uniffi | 2 | 2 | ✓ |
-| **总计** | **28** | **28** | **✓** |
+| mmc-core-uniffi | 4 | 4 | ✓ |
+| **总计** | **30** | **30** | **✓** |
 
 ---
 
@@ -145,7 +145,7 @@
 | 测试用例 | 描述 | 状态 |
 |----------|------|------|
 | `test_storage_service_creation` | 测试 StorageService 实例创建 | ✓ |
-| `test_storage_operations` | 测试设备CRUD操作 | ✓ |
+| `test_storage_operations` | 测试设备 CRUD 操作 | ✓ |
 | `test_config_operations` | 测试配置读写 | ✓ |
 | `test_database_operations (db.rs)` | 测试底层数据库操作 | ✓ |
 | `test_config_operations (db.rs)` | 测试底层配置操作 | ✓ |
@@ -165,7 +165,7 @@
 
 ---
 
-### 2.7 mmc-core-uniffi (2 tests)
+### 2.7 mmc-core-uniffi (4 tests)
 
 统一 API 导出层，通过 UniFFI 暴露跨语言接口。
 
@@ -173,10 +173,25 @@
 |----------|------|------|
 | `test_core_lifecycle` | 测试核心生命周期 (init/shutdown) | ✓ |
 | `test_double_init_fails` | 测试重复初始化失败保护 | ✓ |
+| `test_storage_integration` | 测试存储集成 | ✓ |
+| `test_discovery_integration` | 测试发现集成 | ✓ |
 
 **关键类型**:
-- `MmcCore`: 核心控制结构 (init/is_initialized/shutdown)
+- `MmcCore`: 核心控制结构 (集成所有子模块)
 - `CoreConfig`: 核心配置结构
+- `DeviceInfo`: 设备信息
+- `TransferTask`: 传输任务
+
+**核心功能**:
+- `init()`: 初始化核心服务
+- `start_discovery()`: 启动设备发现
+- `get_discovered_devices()`: 获取已发现设备
+- `register_device()`: 注册本机服务
+- `pair_device()`: 配对设备
+- `send_file()`: 发送文件
+- `get_paired_devices()`: 获取已配对设备
+- `remove_paired_device()`: 删除配对设备
+- `shutdown()`: 关闭核心服务
 
 ---
 
@@ -192,9 +207,34 @@
 
 ---
 
-## 4. 总结
+## 4. 模块集成关系
 
-MMC 核心库原型已完成所有 28 个单元测试，覆盖：
+```
+┌─────────────────────────────────────────────────────────┐
+│                   MmcCore (mmc-core-uniffi)            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │  Discovery   │  │   Pairing    │  │ FileTransfer │  │
+│  │   Service    │  │   Service    │  │   Service    │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  │
+│         │                 │                 │          │
+│         ▼                 ▼                 ▼          │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │           StorageService (SQLite)               │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+              ┌─────────────────────┐
+              │   Protocol (Frames)  │
+              │   Security (Crypto)  │
+              └─────────────────────┘
+```
+
+---
+
+## 5. 总结
+
+MMC 核心库原型已完成所有 30 个单元测试，覆盖：
 - 密码学基础 (密钥生成、证书管理、哈希算法)
 - 协议帧编解码
 - mDNS 设备发现框架
@@ -202,5 +242,6 @@ MMC 核心库原型已完成所有 28 个单元测试，覆盖：
 - 文件分片传输与进度跟踪
 - SQLite 本地存储
 - 核心生命周期管理
+- 跨模块集成
 
 所有测试通过，原型编译成功，可作为后续完整功能实现的基础。

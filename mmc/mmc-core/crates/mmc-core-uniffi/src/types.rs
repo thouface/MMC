@@ -81,6 +81,20 @@ pub struct TransferProgress {
     pub percent: f32,
 }
 
+/// Transfer task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferTask {
+    pub task_id: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub total_size: u64,
+    pub chunk_size: u32,
+    pub total_chunks: u32,
+    pub state: TransferState,
+    pub progress: TransferProgress,
+    pub created_at: i64,
+}
+
 /// Core configuration
 #[derive(Debug, Clone)]
 pub struct CoreConfig {

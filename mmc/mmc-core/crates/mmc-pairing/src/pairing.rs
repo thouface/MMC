@@ -68,21 +68,19 @@ pub struct PairingService {
     keypair: Arc<RwLock<Option<KeyPair>>>,
     cert_store: Arc<RwLock<CertificateStore>>,
     pending_requests: mpsc::Sender<IncomingRequest>,
-    request_rx: mpsc::Receiver<IncomingRequest>,
     event_tx: broadcast::Sender<PairingResult>,
     state: PairingState,
 }
 
 impl PairingService {
     pub fn new() -> Self {
-        let (request_tx, request_rx) = mpsc::channel(10);
+        let (request_tx, _) = mpsc::channel(10);
         let (event_tx, _) = broadcast::channel(100);
 
         Self {
             keypair: Arc::new(RwLock::new(None)),
             cert_store: Arc::new(RwLock::new(CertificateStore::new())),
             pending_requests: request_tx,
-            request_rx,
             event_tx,
             state: PairingState::Idle,
         }
