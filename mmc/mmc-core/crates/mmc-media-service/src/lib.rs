@@ -12,9 +12,11 @@ pub mod video;
 pub mod audio;
 pub mod input;
 pub mod session;
+pub mod codec;
 
 pub use error::{MediaError, Result};
 pub use session::{MirroringSession, SessionConfig, SessionState, SessionStats};
 pub use video::{VideoProcessor, VideoFrameGenerator};
 pub use audio::{AudioProcessor, AudioFrameGenerator};
 pub use input::{InputDispatcher, InputHandler, InputEvent};
+pub use codec::{Codec, EncodedData, RawVideoCodec, RleVideoCodec, HuffmanVideoCodec, PcmAudioCodec, DifferentialAudioCodec};
