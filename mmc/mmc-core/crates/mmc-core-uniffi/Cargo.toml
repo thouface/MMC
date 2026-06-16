@@ -26,6 +26,14 @@ hostname = "0.4"
 bytes = "1.6"
 rand = "0.8"
 
+[build-dependencies]
+uniffi_bindgen = "0.29"
+camino = "1.1"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.10"
+
+[features]
+default = []
+uniffi = []

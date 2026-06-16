@@ -1,0 +1,20 @@
+// MMC Core UniFFI Interface Definition
+namespace mmc_core {
+    enum DeviceType {
+        Unknown,
+        Phone,
+        Tablet,
+        Pc,
+    }
+
+    dictionary DeviceInfo {
+        string id;
+        string name;
+        DeviceType device_type;
+    }
+
+    interface MmcCore {
+        constructor();
+        boolean is_initialized();
+    }
+}
