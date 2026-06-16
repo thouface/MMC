@@ -3,6 +3,10 @@ name = "mmc-core-uniffi"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+name = "mmc_core"
+
 [dependencies]
 mmc-protocol = { path = "../mmc-protocol" }
 mmc-security = { path = "../mmc-security" }
