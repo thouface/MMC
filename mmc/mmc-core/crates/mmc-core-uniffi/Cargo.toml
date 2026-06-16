@@ -10,6 +10,7 @@ mmc-discovery = { path = "../mmc-discovery" }
 mmc-pairing = { path = "../mmc-pairing" }
 mmc-file-transfer = { path = "../mmc-file-transfer" }
 mmc-storage = { path = "../mmc-storage" }
+mmc-media-service = { path = "../mmc-media-service" }
 
 tokio = { workspace = true }
 futures = { workspace = true }
@@ -23,6 +24,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 hostname = "0.4"
 bytes = "1.6"
+rand = "0.8"
 
 [dev-dependencies]
 tokio-test = "0.4"

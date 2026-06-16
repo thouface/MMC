@@ -2,6 +2,7 @@
 
 use mmc_discovery::DeviceType as DiscoveryDeviceType;
 use mmc_file_transfer::TransferState as FtTransferState;
+use mmc_storage::DeviceType as StorageDeviceType;
 use serde::{Deserialize, Serialize};
 
 /// Device type
@@ -25,6 +26,19 @@ impl From<DiscoveryDeviceType> for DeviceType {
             DiscoveryDeviceType::Pc => Self::Pc,
             DiscoveryDeviceType::Tv => Self::Tv,
             DiscoveryDeviceType::Wearable => Self::Wearable,
+        }
+    }
+}
+
+impl From<StorageDeviceType> for DeviceType {
+    fn from(dt: StorageDeviceType) -> Self {
+        match dt {
+            StorageDeviceType::Unknown => Self::Unknown,
+            StorageDeviceType::Phone => Self::Phone,
+            StorageDeviceType::Tablet => Self::Tablet,
+            StorageDeviceType::Pc => Self::Pc,
+            StorageDeviceType::Tv => Self::Tv,
+            StorageDeviceType::Wearable => Self::Wearable,
         }
     }
 }

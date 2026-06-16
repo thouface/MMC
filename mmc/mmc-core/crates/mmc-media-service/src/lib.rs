@@ -14,7 +14,7 @@ pub mod input;
 pub mod session;
 
 pub use error::{MediaError, Result};
-pub use session::{MirroringSession, SessionConfig, SessionState};
+pub use session::{MirroringSession, SessionConfig, SessionState, SessionStats};
 pub use video::{VideoProcessor, VideoFrameGenerator};
 pub use audio::{AudioProcessor, AudioFrameGenerator};
 pub use input::{InputDispatcher, InputHandler, InputEvent};
