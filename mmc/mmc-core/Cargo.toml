@@ -7,6 +7,7 @@ members = [
     "crates/mmc-pairing",
     "crates/mmc-file-transfer",
     "crates/mmc-storage",
+    "crates/mmc-transport",
     "crates/mmc-core-uniffi",
     "crates/mmc-media-service",
 ]
