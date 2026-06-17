@@ -890,6 +890,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mmc-clipboard"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "mmc-protocol",
+ "mmc-transport",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mmc-core-uniffi"
 version = "0.1.0"
 dependencies = [
