@@ -5,8 +5,8 @@
 
 pub mod error;
 pub mod manager;
-pub mod sync;
+pub mod frame_transport;
 
 pub use error::{ClipboardError, Result};
 pub use manager::{ClipboardManager, ClipboardEntry, ClipboardSource};
-pub use sync::{ClipboardSyncer, ClipboardConfig, SyncDirection, SyncEvent};
+pub use frame_transport::{ClipboardFrame, clipboard_data_size, CLIPBOARD_MAGIC};
