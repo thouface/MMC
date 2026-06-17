@@ -15,6 +15,7 @@ pub mod input;
 pub mod session;
 pub mod codec;
 pub mod platform;
+pub mod platform_android;
 
 pub use error::{MediaError, Result};
 pub use session::{MirroringSession, SessionConfig, SessionState, SessionStats};
@@ -25,3 +26,4 @@ pub use codec::{Codec, EncodedData, RawVideoCodec, RleVideoCodec, HuffmanVideoCo
 pub use platform::{PlatformType, PlatformAdapter, ScreenCapturer, AudioRecorder, InputInjector, 
                    DisplayInfo, AudioInfo, DefaultPlatformAdapter, MockScreenCapturer, 
                    MockAudioRecorder, MockInputInjector};
+pub use platform_android::{AndroidScreenCapturer, AndroidInputInjector};
