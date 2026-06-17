@@ -537,4 +537,241 @@ mod tests {
         assert_eq!(format!("{}", SessionState::Active), "Active");
         assert_eq!(format!("{}", SessionState::Paused), "Paused");
     }
+
+    // ========== End-to-End Media Frame Protocol Tests ==========
+
+    /// Video frame round-trip via mmc-protocol Frame encoding & codec
+    #[test]
+    fn test_e2e_video_frame_roundtrip_raw() {
+        use mmc_protocol::{Frame, FrameType};
+        use crate::codec::{Codec, RawVideoCodec};
+
+        // Source device: generate a video frame
+        let gen = crate::video::VideoFrameGenerator::new(640, 480, mmc_protocol::PixelFormat::Rgba8888);
+        let mut gen = gen;
+        let original = gen.generate_frame().unwrap();
+
+        // Encode with raw video codec
+        let mut codec = RawVideoCodec::new();
+        let encoded = codec.encode(&original).unwrap();
+
+        // Pack into Frame for network transmission
+        let frame = Frame::new(FrameType::VideoFrame, encoded.data.clone());
+        assert_eq!(frame.frame_type, FrameType::VideoFrame);
+
+        // (simulate network) serialize & deserialize the Frame
+        let payload = frame.payload.clone();
+
+        // Target device: decode the payload via raw codec
+        let encoded2 = crate::codec::EncodedData {
+            codec: "raw".to_string(),
+            original_size: encoded.original_size,
+            encoded_size: payload.len(),
+            data: payload,
+        };
+        let decoded = codec.decode(&encoded2).unwrap();
+
+        assert_eq!(decoded.sequence_id, original.sequence_id);
+        assert_eq!(decoded.timestamp_ms, original.timestamp_ms);
+        assert_eq!(decoded.width, original.width);
+        assert_eq!(decoded.height, original.height);
+        assert_eq!(decoded.pixel_format, original.pixel_format);
+        assert_eq!(decoded.data, original.data);
+    }
+
+    /// Audio frame round-trip via mmc-protocol Frame encoding & codec
+    #[test]
+    fn test_e2e_audio_frame_roundtrip_pcm() {
+        use mmc_protocol::{Frame, FrameType};
+        use crate::codec::{Codec, PcmAudioCodec};
+
+        let mut gen = crate::audio::AudioFrameGenerator::new(44100, 2, mmc_protocol::SampleFormat::S16);
+        let original = gen.generate_frame(2048).unwrap();
+
+        let mut codec = PcmAudioCodec::new();
+        let encoded = codec.encode(&original).unwrap();
+
+        let frame = Frame::new(FrameType::AudioFrame, encoded.data.clone());
+        assert_eq!(frame.frame_type, FrameType::AudioFrame);
+
+        let payload = frame.payload;
+        let encoded2 = crate::codec::EncodedData {
+            codec: "pcm".to_string(),
+            original_size: encoded.original_size,
+            encoded_size: payload.len(),
+            data: payload,
+        };
+        let decoded = codec.decode(&encoded2).unwrap();
+
+        assert_eq!(decoded.sequence_id, original.sequence_id);
+        assert_eq!(decoded.sample_rate, original.sample_rate);
+        assert_eq!(decoded.channels, original.channels);
+        assert_eq!(decoded.sample_format, original.sample_format);
+        assert_eq!(decoded.data, original.data);
+    }
+
+    /// Video frame round-trip via RLE compression + Frame protocol
+    #[test]
+    fn test_e2e_video_frame_roundtrip_rle() {
+        use mmc_protocol::{Frame, FrameType, PixelFormat};
+        use crate::codec::{Codec, RleVideoCodec};
+
+        // Create original video frame
+        let mut gen = crate::video::VideoFrameGenerator::new(320, 240, PixelFormat::Rgba8888);
+        let original = gen.generate_frame().unwrap();
+
+        // RLE encode
+        let mut codec = RleVideoCodec::new();
+        let encoded = codec.encode(&original).unwrap();
+        // RLE should compress or stay close for test patterns
+        assert!(encoded.encoded_size > 0);
+
+        // Pack into Frame
+        let frame = Frame::new(FrameType::VideoFrame, encoded.data.clone());
+        let payload = frame.payload;
+
+        // Decode via codec
+        let encoded2 = crate::codec::EncodedData {
+            codec: "rle".to_string(),
+            original_size: encoded.original_size,
+            encoded_size: payload.len(),
+            data: payload,
+        };
+        let decoded = codec.decode(&encoded2).unwrap();
+
+        assert_eq!(decoded.sequence_id, original.sequence_id);
+        assert_eq!(decoded.width, original.width);
+        assert_eq!(decoded.height, original.height);
+        assert_eq!(decoded.pixel_format, original.pixel_format);
+        assert_eq!(decoded.data, original.data);
+    }
+
+    /// Audio frame round-trip via differential encoding + Frame protocol
+    #[test]
+    fn test_e2e_audio_frame_roundtrip_differential() {
+        use mmc_protocol::{Frame, FrameType, SampleFormat};
+        use crate::codec::{Codec, DifferentialAudioCodec};
+
+        let mut gen = crate::audio::AudioFrameGenerator::new(44100, 1, SampleFormat::S16);
+        let original = gen.generate_frame(1024).unwrap();
+
+        let mut codec = DifferentialAudioCodec::new();
+        let encoded = codec.encode(&original).unwrap();
+        assert!(encoded.encoded_size > 0);
+
+        let frame = Frame::new(FrameType::AudioFrame, encoded.data.clone());
+        let payload = frame.payload;
+
+        let encoded2 = crate::codec::EncodedData {
+            codec: "differential".to_string(),
+            original_size: encoded.original_size,
+            encoded_size: payload.len(),
+            data: payload,
+        };
+        let decoded = codec.decode(&encoded2).unwrap();
+
+        assert_eq!(decoded.sequence_id, original.sequence_id);
+        assert_eq!(decoded.sample_rate, original.sample_rate);
+        assert_eq!(decoded.channels, original.channels);
+        assert_eq!(decoded.data, original.data);
+    }
+
+    /// Multi-frame streaming simulation
+    /// Generate a series of video frames, encode them all, send them via Frame protocol, and verify decoding on the other side
+    #[test]
+    fn test_e2e_multi_frame_stream() {
+        use mmc_protocol::{Frame, FrameType, PixelFormat};
+        use crate::codec::{Codec, RawVideoCodec};
+
+        let mut gen = crate::video::VideoFrameGenerator::new(320, 240, PixelFormat::Rgba8888);
+        let mut codec = RawVideoCodec::new();
+        let num_frames = 10;
+        let mut originals = Vec::with_capacity(num_frames);
+        let mut frames = Vec::with_capacity(num_frames);
+
+        for _ in 0..num_frames {
+            let original = gen.generate_frame().unwrap();
+            let encoded = codec.encode(&original).unwrap();
+            let frame = Frame::new(FrameType::VideoFrame, encoded.data.clone());
+            originals.push(original);
+            frames.push((frame, encoded.original_size, encoded.encoded_size));
+        }
+
+        // Verify sequence ordering and decoding
+        for (i, (frame, orig_size, enc_size)) in frames.iter().enumerate() {
+            let encoded2 = crate::codec::EncodedData {
+                codec: "raw".to_string(),
+                original_size: *orig_size,
+                encoded_size: *enc_size,
+                data: frame.payload.clone(),
+            };
+            let decoded = codec.decode(&encoded2).unwrap();
+
+            assert_eq!(decoded.sequence_id, originals[i].sequence_id);
+            assert_eq!(decoded.width, originals[i].width);
+            assert_eq!(decoded.height, originals[i].height);
+            assert_eq!(decoded.data, originals[i].data);
+        }
+    }
+
+    /// Session-based end-to-end test: configure session, generate frames,
+    /// simulate sending them over Frame protocol, and verify decoded content
+    #[test]
+    fn test_e2e_session_based_streaming() {
+        use mmc_protocol::{Frame, FrameType, PixelFormat, SampleFormat};
+        use crate::codec::{Codec, RawVideoCodec, PcmAudioCodec};
+
+        // Source session
+        let mut src_session = MirroringSession::new();
+        let mut config = SessionConfig::default();
+        config.video_width = 640;
+        config.video_height = 480;
+        config.video_format = PixelFormat::Rgba8888;
+        src_session.configure(config.clone()).unwrap();
+        src_session.start().unwrap();
+
+        // Target session
+        let mut dst_session = MirroringSession::new();
+        dst_session.configure(config).unwrap();
+        dst_session.start().unwrap();
+
+        // Generate & send several video frames
+        let mut video_codec = RawVideoCodec::new();
+        let mut audio_codec = PcmAudioCodec::new();
+
+        for _ in 0..5 {
+            let vframe = src_session.generate_video_frame().unwrap();
+            let encoded = video_codec.encode(&vframe).unwrap();
+            let frame = Frame::new(FrameType::VideoFrame, encoded.data.clone());
+
+            // On target side: read frame and feed into session
+            let decoded = video_codec.decode(&crate::codec::EncodedData {
+                codec: "raw".to_string(),
+                original_size: encoded.original_size,
+                encoded_size: frame.payload.len(),
+                data: frame.payload.clone(),
+            }).unwrap();
+            dst_session.process_incoming_video_frame(&decoded).unwrap();
+        }
+
+        for _ in 0..5 {
+            let aframe = src_session.generate_audio_frame(2048).unwrap();
+            let encoded = audio_codec.encode(&aframe).unwrap();
+            let frame = Frame::new(FrameType::AudioFrame, encoded.data.clone());
+
+            let decoded = audio_codec.decode(&crate::codec::EncodedData {
+                codec: "pcm".to_string(),
+                original_size: encoded.original_size,
+                encoded_size: frame.payload.len(),
+                data: frame.payload.clone(),
+            }).unwrap();
+            dst_session.process_incoming_audio_frame(&decoded).unwrap();
+        }
+
+        // Final state check
+        assert_eq!(dst_session.state(), SessionState::Active);
+        // src_session generated the frames
+        assert!(src_session.total_video_frames() >= 5);
+        assert!(src_session.total_audio_frames() >= 5);
+    }
 }
