@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">MMC Demo</string>
+    <string name="accessibility_service_description">MMC Input Service allows remote devices to inject touch and key events for remote control functionality.</string>
+    <string name="notification_channel_name">MMC Service</string>
+    <string name="notification_channel_description">Background services for file transfer and screen capture</string>
+    <string name="foreground_notification_title">MMC Running</string>
+    <string name="foreground_notification_text">File transfer and remote control are active</string>
+    <string name="screen_capture_notification_title">Screen Sharing</string>
+    <string name="screen_capture_notification_text">Your screen is being shared with a connected device</string>
 </resources>
