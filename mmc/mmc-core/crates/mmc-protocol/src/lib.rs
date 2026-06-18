@@ -121,9 +121,9 @@ impl Frame {
         let payload_len = cursor.get_u32();
 
         let frame_type =
-            FrameType::from_u16(frame_type_val).ok_or_else(|| {
+            FrameType::from_u16(frame_type_val).ok_or(
                 error::ProtocolError::UnknownFrameType(frame_type_val)
-            })?;
+            )?;
 
         let remaining = buf.len() - Self::HEADER_SIZE;
         if remaining < payload_len as usize {
@@ -161,7 +161,7 @@ where
     let payload_len = cursor.get_u32();
 
     let frame_type = FrameType::from_u16(frame_type_val)
-        .ok_or_else(|| error::ProtocolError::UnknownFrameType(frame_type_val))?;
+        .ok_or(error::ProtocolError::UnknownFrameType(frame_type_val))?;
 
     // Read payload
     let mut payload = vec![0u8; payload_len as usize];
