@@ -8,7 +8,10 @@ use std::time::Duration;
 use mmc_clipboard::ClipboardManager;
 use mmc_protocol::{ClipboardContent, ClipboardData};
 
+#[allow(unused_imports)]
 use crate::error::Result;
+#[cfg(feature = "clipboard")]
+use crate::error::DesktopError;
 
 /// PC clipboard monitor using arboard crate
 pub struct PcClipboardMonitor {
