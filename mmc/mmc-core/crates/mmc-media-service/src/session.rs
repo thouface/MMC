@@ -5,7 +5,7 @@ use tracing::{info, debug, warn};
 use crate::error::{Result, MediaError};
 use crate::video::{VideoProcessor, VideoFrameGenerator};
 use crate::audio::{AudioProcessor, AudioFrameGenerator};
-use crate::input::{InputDispatcher, DefaultInputHandler, InputHandler, InputEvent};
+use crate::input::{InputDispatcher, DefaultInputHandler, InputEvent};
 
 /// Session state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

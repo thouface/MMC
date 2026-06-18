@@ -3,17 +3,17 @@
 //! This module provides connection establishment, state management,
 //! and connection pooling for device-to-device communication.
 
-use std::net::{SocketAddr, TcpStream, TcpListener};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpSocket, tcp::{OwnedReadHalf, OwnedWriteHalf}};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::{timeout, sleep};
 
 use crate::error::{Result, TransportError};
-use crate::frame::{Frame, FrameSender, FrameReceiver, FrameCodec, FrameType};
+use crate::frame::{Frame, FrameCodec};
 
 /// Connection state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -9,6 +9,7 @@ use std::ffi::{CStr, CString};
 use crate::core::MmcCore;
 
 /// Internal helper to convert a null-terminated C string to a Rust String.
+#[allow(dead_code)]
 unsafe fn cstr_to_string(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
         return None;

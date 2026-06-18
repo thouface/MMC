@@ -5,10 +5,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use mmc_clipboard::{ClipboardManager, ClipboardEntry, ClipboardSource};
+use mmc_clipboard::ClipboardManager;
 use mmc_protocol::{ClipboardContent, ClipboardData};
 
-use crate::error::{DesktopError, Result};
+use crate::error::Result;
 
 /// PC clipboard monitor using arboard crate
 pub struct PcClipboardMonitor {

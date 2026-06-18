@@ -1,8 +1,8 @@
 //! Input event handling module for touch and keyboard events
 
 use mmc_protocol::{TouchEvent, KeyEvent, TouchType, KeyEventType};
-use tracing::{info, debug};
-use crate::error::{Result, MediaError};
+use tracing::debug;
+use crate::error::Result;
 
 /// Input event types
 #[derive(Debug, Clone)]

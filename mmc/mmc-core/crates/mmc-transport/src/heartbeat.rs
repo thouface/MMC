@@ -6,8 +6,8 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, RwLock};
-use tokio::time::{interval, sleep};
+use tokio::sync::RwLock;
+use tokio::time::interval;
 
 use crate::error::{Result, TransportError};
 use crate::frame::Frame;

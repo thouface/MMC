@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Device { command } => {
-            commands::handle_device_command(&state, command).await?;
+            commands::handle_device_command(&mut state, command).await?;
         }
         Commands::Transfer { command } => {
             commands::handle_transfer_command(&mut state, command).await?;
@@ -89,7 +89,7 @@ mod commands {
     use mmc_desktop_app::commands::{DeviceCommand, TransferCommand, ClipboardCommand, MirrorCommand};
     use std::io::{self, BufRead, Write};
 
-    pub async fn handle_device_command(state: &AppState, command: DeviceCommand) -> Result<()> {
+    pub async fn handle_device_command(state: &mut AppState, command: DeviceCommand) -> Result<()> {
         match command {
             DeviceCommand::Discover => {
                 println!("Starting device discovery...");
@@ -125,8 +125,8 @@ mod commands {
             }
             DeviceCommand::Unpair { device_id } => {
                 println!("Unpairing device: {}", device_id);
-                // Note: unpair_device requires mutable state, but we're in immutable context
-                println!("Unpair requires mutable state - use interactive mode.");
+                state.unpair_device(&device_id)?;
+                println!("Device unpaired.");
             }
         }
         Ok(())

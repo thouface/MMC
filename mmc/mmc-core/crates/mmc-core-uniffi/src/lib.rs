@@ -63,3 +63,86 @@ pub extern "system" fn JNI_OnUnload(
 ) {
     // Cleanup hook - currently no-op
 }
+
+// --- iOS FFI Support ---
+// iOS Swift code calls these FFI functions to interact with the Rust core.
+
+#[cfg(target_os = "ios")]
+mod ios {
+    use std::ffi::{CStr, CString};
+    use crate::core::MmcCore;
+    
+    /// Initialize the MMC Core library
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_initialize() {
+        tracing::info!("MMC Core iOS FFI initialized");
+    }
+    
+    /// Handle clipboard change callback from iOS
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_on_clipboard_change(text: *const std::os::raw::c_char) {
+        if let Ok(text) = CStr::from_ptr(text).to_str() {
+            tracing::debug!("iOS clipboard change: {} chars", text.len());
+        }
+    }
+    
+    /// Handle video frame callback from iOS
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_on_video_frame(width: i32, height: i32) {
+        tracing::trace!("iOS video frame: {}x{}", width, height);
+    }
+    
+    /// Get device ID as C string
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_get_device_id(
+        buffer: *mut *mut std::os::raw::c_char,
+        length: *mut usize,
+    ) -> i32 {
+        let device_id = MmcCore::instance().device_id();
+        
+        if buffer.is_null() || length.is_null() {
+            return -1;
+        }
+        
+        let c_string = match CString::new(device_id.clone()) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        
+        // Transfer ownership to caller
+        *buffer = c_string.into_raw();
+        *length = device_id.len();
+        
+        0
+    }
+}
+
+// Stub implementations for non-iOS platforms
+#[cfg(not(target_os = "ios"))]
+mod ios {
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_initialize() {
+        // No-op on non-iOS platforms
+    }
+    
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_on_clipboard_change(_text: *const std::os::raw::c_char) {
+        // No-op on non-iOS platforms
+    }
+    
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_on_video_frame(_width: i32, _height: i32) {
+        // No-op on non-iOS platforms
+    }
+    
+    #[no_mangle]
+    pub unsafe extern "C" fn mmc_core_get_device_id(
+        _buffer: *mut *mut std::os::raw::c_char,
+        _length: *mut usize,
+    ) -> i32 {
+        -1 // Not implemented on non-iOS platforms
+    }
+}
+
+pub use ios::*;
+
