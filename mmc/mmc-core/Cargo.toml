@@ -11,6 +11,7 @@ members = [
     "crates/mmc-clipboard",
     "crates/mmc-core-uniffi",
     "crates/mmc-media-service",
+    "crates/mmc-desktop-app",
 ]
 
 [workspace.package]

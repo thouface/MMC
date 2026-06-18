@@ -1,0 +1,46 @@
+[package]
+name = "mmc-desktop-app"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "mmc-desktop"
+path = "src/main.rs"
+
+[dependencies]
+mmc-protocol = { path = "../mmc-protocol" }
+mmc-transport = { path = "../mmc-transport" }
+mmc-discovery = { path = "../mmc-discovery" }
+mmc-pairing = { path = "../mmc-pairing" }
+mmc-file-transfer = { path = "../mmc-file-transfer" }
+mmc-clipboard = { path = "../mmc-clipboard" }
+mmc-media-service = { path = "../mmc-media-service" }
+mmc-security = { path = "../mmc-security" }
+mmc-storage = { path = "../mmc-storage" }
+mmc-core-uniffi = { path = "../mmc-core-uniffi" }
+
+tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+uuid = { workspace = true }
+chrono = { workspace = true }
+bytes = "1.6"
+rand = "0.8"
+clap = { version = "4.5", features = ["derive"] }
+hostname = "0.4"
+
+# Clipboard support for PC platforms
+arboard = { version = "3.4", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.10"
+
+[features]
+default = ["clipboard"]
+clipboard = ["dep:arboard"]
