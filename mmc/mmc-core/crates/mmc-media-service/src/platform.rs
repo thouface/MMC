@@ -280,6 +280,70 @@ impl DefaultPlatformAdapter {
         }
     }
     
+    /// Get platform-specific default display info
+    pub fn default_display_info(platform: PlatformType) -> DisplayInfo {
+        match platform {
+            PlatformType::Android => DisplayInfo {
+                width: 1080,
+                height: 1920,
+                density: 2.0,
+                refresh_rate: 60,
+                rotation: 0,
+            },
+            PlatformType::Ios => DisplayInfo {
+                width: 1170,
+                height: 2532,
+                density: 3.0,
+                refresh_rate: 120,
+                rotation: 0,
+            },
+            PlatformType::Windows => DisplayInfo {
+                width: 1920,
+                height: 1080,
+                density: 1.0,
+                refresh_rate: 60,
+                rotation: 0,
+            },
+            PlatformType::Macos => DisplayInfo {
+                width: 2560,
+                height: 1600,
+                density: 2.0,
+                refresh_rate: 60,
+                rotation: 0,
+            },
+            PlatformType::Linux => DisplayInfo {
+                width: 1920,
+                height: 1080,
+                density: 1.0,
+                refresh_rate: 60,
+                rotation: 0,
+            },
+            PlatformType::Unknown => DisplayInfo {
+                width: 1920,
+                height: 1080,
+                density: 1.0,
+                refresh_rate: 60,
+                rotation: 0,
+            },
+        }
+    }
+    
+    /// Get platform-specific default audio info
+    pub fn default_audio_info(platform: PlatformType) -> AudioInfo {
+        match platform {
+            PlatformType::Android | PlatformType::Ios | PlatformType::Unknown => AudioInfo {
+                sample_rate: 44100,
+                channels: 2,
+                buffer_size: 1024,
+            },
+            PlatformType::Windows | PlatformType::Macos | PlatformType::Linux => AudioInfo {
+                sample_rate: 48000,
+                channels: 2,
+                buffer_size: 2048,
+            },
+        }
+    }
+    
     pub fn create_default() -> Self {
         Self::new(Self::detect_platform())
     }
@@ -303,21 +367,11 @@ impl PlatformAdapter for DefaultPlatformAdapter {
     }
     
     fn get_display_info(&self) -> Result<DisplayInfo> {
-        Ok(DisplayInfo {
-            width: 1080,
-            height: 1920,
-            density: 2.0,
-            refresh_rate: 60,
-            rotation: 0,
-        })
+        Ok(Self::default_display_info(self.platform_type))
     }
     
     fn get_audio_info(&self) -> Result<AudioInfo> {
-        Ok(AudioInfo {
-            sample_rate: 44100,
-            channels: 2,
-            buffer_size: 1024,
-        })
+        Ok(Self::default_audio_info(self.platform_type))
     }
 }
 
@@ -463,5 +517,133 @@ mod tests {
         assert!(adapter.screen_capturer().is_some());
         assert!(adapter.audio_recorder().is_some());
         assert!(adapter.input_injector().is_some());
+    }
+    
+    #[test]
+    fn test_android_platform_adapter() {
+        let adapter = DefaultPlatformAdapter::new(PlatformType::Android);
+        assert_eq!(adapter.platform_type(), PlatformType::Android);
+        
+        let display = adapter.get_display_info().unwrap();
+        assert_eq!(display.width, 1080);
+        assert_eq!(display.height, 1920);
+        assert_eq!(display.density, 2.0);
+        
+        let audio = adapter.get_audio_info().unwrap();
+        assert_eq!(audio.sample_rate, 44100);
+    }
+    
+    #[test]
+    fn test_ios_platform_adapter() {
+        let adapter = DefaultPlatformAdapter::new(PlatformType::Ios);
+        assert_eq!(adapter.platform_type(), PlatformType::Ios);
+        
+        let display = adapter.get_display_info().unwrap();
+        assert_eq!(display.width, 1170);
+        assert_eq!(display.height, 2532);
+        assert_eq!(display.density, 3.0);
+        assert_eq!(display.refresh_rate, 120);
+        
+        let audio = adapter.get_audio_info().unwrap();
+        assert_eq!(audio.sample_rate, 44100);
+    }
+    
+    #[test]
+    fn test_windows_platform_adapter() {
+        let adapter = DefaultPlatformAdapter::new(PlatformType::Windows);
+        assert_eq!(adapter.platform_type(), PlatformType::Windows);
+        
+        let display = adapter.get_display_info().unwrap();
+        assert_eq!(display.width, 1920);
+        assert_eq!(display.height, 1080);
+        assert_eq!(display.density, 1.0);
+        
+        let audio = adapter.get_audio_info().unwrap();
+        assert_eq!(audio.sample_rate, 48000);
+        assert_eq!(audio.buffer_size, 2048);
+    }
+    
+    #[test]
+    fn test_macos_platform_adapter() {
+        let adapter = DefaultPlatformAdapter::new(PlatformType::Macos);
+        assert_eq!(adapter.platform_type(), PlatformType::Macos);
+        
+        let display = adapter.get_display_info().unwrap();
+        assert_eq!(display.width, 2560);
+        assert_eq!(display.height, 1600);
+        assert_eq!(display.density, 2.0);
+        
+        let audio = adapter.get_audio_info().unwrap();
+        assert_eq!(audio.sample_rate, 48000);
+    }
+    
+    #[test]
+    fn test_linux_platform_adapter() {
+        let adapter = DefaultPlatformAdapter::new(PlatformType::Linux);
+        assert_eq!(adapter.platform_type(), PlatformType::Linux);
+        
+        let display = adapter.get_display_info().unwrap();
+        assert_eq!(display.width, 1920);
+        assert_eq!(display.height, 1080);
+        assert_eq!(display.density, 1.0);
+        
+        let audio = adapter.get_audio_info().unwrap();
+        assert_eq!(audio.sample_rate, 48000);
+    }
+    
+    #[test]
+    fn test_platform_default_display_info() {
+        // Test all platforms have default display info
+        for platform in [
+            PlatformType::Android,
+            PlatformType::Ios,
+            PlatformType::Windows,
+            PlatformType::Macos,
+            PlatformType::Linux,
+            PlatformType::Unknown,
+        ] {
+            let info = DefaultPlatformAdapter::default_display_info(platform);
+            assert!(info.width > 0);
+            assert!(info.height > 0);
+            assert!(info.density > 0.0);
+            assert!(info.refresh_rate > 0);
+        }
+    }
+    
+    #[test]
+    fn test_platform_default_audio_info() {
+        // Test all platforms have default audio info
+        for platform in [
+            PlatformType::Android,
+            PlatformType::Ios,
+            PlatformType::Windows,
+            PlatformType::Macos,
+            PlatformType::Linux,
+            PlatformType::Unknown,
+        ] {
+            let info = DefaultPlatformAdapter::default_audio_info(platform);
+            assert!(info.sample_rate > 0);
+            assert!(info.channels > 0);
+            assert!(info.buffer_size > 0);
+        }
+    }
+    
+    #[test]
+    fn test_all_platform_types_have_adapters() {
+        let platforms = [
+            PlatformType::Android,
+            PlatformType::Ios,
+            PlatformType::Windows,
+            PlatformType::Macos,
+            PlatformType::Linux,
+            PlatformType::Unknown,
+        ];
+        
+        for platform in platforms {
+            let adapter = DefaultPlatformAdapter::new(platform);
+            assert!(adapter.screen_capturer().is_some(), "Platform {:?} should have screen capturer", platform);
+            assert!(adapter.audio_recorder().is_some(), "Platform {:?} should have audio recorder", platform);
+            assert!(adapter.input_injector().is_some(), "Platform {:?} should have input injector", platform);
+        }
     }
 }

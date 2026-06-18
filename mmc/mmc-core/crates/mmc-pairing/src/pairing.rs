@@ -3,9 +3,10 @@
 use mmc_protocol::{Frame, FrameType, read_frame, write_frame};
 use mmc_security::{CertificateStore, Crypto, KeyPair};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::{Error, Result};
@@ -48,10 +49,17 @@ pub enum PairingResult {
 }
 
 /// Incoming pairing request from a peer
+#[derive(Debug)]
 pub struct IncomingRequest {
     pub pairing_id: String,
     pub request: PairingRequest,
-    pub confirm_tx: tokio::sync::oneshot::Sender<bool>,
+}
+
+/// Pending confirmation entry
+struct PendingConfirmation {
+    pairing_id: String,
+    request: PairingRequest,
+    confirm_tx: oneshot::Sender<bool>,
 }
 
 /// Pairing service state
@@ -68,6 +76,7 @@ pub struct PairingService {
     keypair: Arc<RwLock<Option<KeyPair>>>,
     cert_store: Arc<RwLock<CertificateStore>>,
     pending_requests: mpsc::Sender<IncomingRequest>,
+    pending_confirmations: Arc<RwLock<HashMap<String, PendingConfirmation>>>,
     event_tx: broadcast::Sender<PairingResult>,
     state: PairingState,
 }
@@ -81,6 +90,7 @@ impl PairingService {
             keypair: Arc::new(RwLock::new(None)),
             cert_store: Arc::new(RwLock::new(CertificateStore::new())),
             pending_requests: request_tx,
+            pending_confirmations: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
             state: PairingState::Idle,
         }
@@ -216,16 +226,29 @@ impl PairingService {
             }
         };
 
-        let (confirm_tx, confirm_rx) = tokio::sync::oneshot::channel();
+        let pairing_id = request.pairing_id.clone();
+        
+        // Create confirmation channel
+        let (confirm_tx, confirm_rx) = oneshot::channel();
+        
+        // Store pending confirmation
+        {
+            let mut pending = self.pending_confirmations.write().await;
+            pending.insert(pairing_id.clone(), PendingConfirmation {
+                pairing_id: pairing_id.clone(),
+                request: request.clone(),
+                confirm_tx,
+            });
+        }
+        
+        // Also send to mpsc channel for application-level handling
         let incoming = IncomingRequest {
-            pairing_id: request.pairing_id.clone(),
+            pairing_id: pairing_id.clone(),
             request: request.clone(),
-            confirm_tx,
         };
 
         if self.pending_requests.send(incoming).await.is_err() {
-            warn!("No listener for pairing request");
-            return;
+            debug!("No listener for pairing request via mpsc, using pending_confirmations");
         }
 
         let accepted = confirm_rx.await.unwrap_or(false);
@@ -252,8 +275,39 @@ impl PairingService {
     }
 
     /// Confirm or reject a pending pairing request
-    pub async fn confirm_pairing(&self, _pairing_id: &str, _accept: bool) -> Result<()> {
+    pub async fn confirm_pairing(&self, pairing_id: &str, accept: bool) -> Result<()> {
+        let confirm_tx = {
+            let mut pending = self.pending_confirmations.write().await;
+            match pending.remove(pairing_id) {
+                Some(confirmation) => {
+                    debug!("Confirming pairing {}: accept={}", pairing_id, accept);
+                    confirmation.confirm_tx
+                }
+                None => {
+                    warn!("Pairing request {} not found", pairing_id);
+                    return Err(Error::NotFound);
+                }
+            }
+        };
+
+        // Send confirmation (true = accept, false = reject)
+        if confirm_tx.send(accept).is_err() {
+            warn!("Failed to send confirmation for pairing {}", pairing_id);
+            return Err(Error::Protocol("Failed to confirm pairing".to_string()));
+        }
+
         Ok(())
+    }
+
+    /// Get list of pending pairing requests
+    pub async fn get_pending_requests(&self) -> Vec<PairingRequest> {
+        let pending = self.pending_confirmations.read().await;
+        pending.values().map(|p| p.request.clone()).collect()
+    }
+
+    /// Check if there are pending pairing requests
+    pub async fn has_pending_requests(&self) -> bool {
+        !self.pending_confirmations.read().await.is_empty()
     }
 
     /// Receive events stream
@@ -397,5 +451,145 @@ mod tests {
         };
         assert_eq!(request.pairing_id, "p-1");
         assert!(request.capabilities.file_transfer);
+    }
+
+    #[tokio::test]
+    async fn test_confirm_pairing_accept() {
+        let service = PairingService::new();
+        
+        // Create a pending confirmation manually
+        let pairing_id = "test-pairing-1".to_string();
+        let (confirm_tx, _confirm_rx) = oneshot::channel();
+        
+        {
+            let mut pending = service.pending_confirmations.write().await;
+            pending.insert(pairing_id.clone(), PendingConfirmation {
+                pairing_id: pairing_id.clone(),
+                request: PairingRequest {
+                    pairing_id: pairing_id.clone(),
+                    device_id: "device-1".to_string(),
+                    device_name: "Test Device".to_string(),
+                    public_key: "key123".to_string(),
+                    capabilities: Capabilities::default(),
+                },
+                confirm_tx,
+            });
+        }
+        
+        // Confirm pairing
+        let result = service.confirm_pairing(&pairing_id, true).await;
+        assert!(result.is_ok());
+        
+        // Should be removed after confirmation
+        let has_pending = service.has_pending_requests().await;
+        assert!(!has_pending);
+    }
+
+    #[tokio::test]
+    async fn test_confirm_pairing_reject() {
+        let service = PairingService::new();
+        
+        let pairing_id = "test-pairing-2".to_string();
+        let (confirm_tx, _confirm_rx) = oneshot::channel();
+        
+        {
+            let mut pending = service.pending_confirmations.write().await;
+            pending.insert(pairing_id.clone(), PendingConfirmation {
+                pairing_id: pairing_id.clone(),
+                request: PairingRequest {
+                    pairing_id: pairing_id.clone(),
+                    device_id: "device-2".to_string(),
+                    device_name: "Reject Device".to_string(),
+                    public_key: "key456".to_string(),
+                    capabilities: Capabilities::default(),
+                },
+                confirm_tx,
+            });
+        }
+        
+        // Reject pairing
+        let result = service.confirm_pairing(&pairing_id, false).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_confirm_pairing_not_found() {
+        let service = PairingService::new();
+        
+        // Try to confirm non-existent pairing
+        let result = service.confirm_pairing("nonexistent", true).await;
+        assert!(result.is_err());
+        
+        match result {
+            Err(crate::Error::NotFound) => {}
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_requests() {
+        let service = PairingService::new();
+        
+        // Initially empty
+        let pending = service.get_pending_requests().await;
+        assert!(pending.is_empty());
+        
+        // Add a pending request
+        let pairing_id = "test-pending".to_string();
+        let (confirm_tx, _confirm_rx) = oneshot::channel();
+        
+        {
+            let mut pending = service.pending_confirmations.write().await;
+            pending.insert(pairing_id.clone(), PendingConfirmation {
+                pairing_id: pairing_id.clone(),
+                request: PairingRequest {
+                    pairing_id: pairing_id.clone(),
+                    device_id: "device-3".to_string(),
+                    device_name: "Pending Device".to_string(),
+                    public_key: "key789".to_string(),
+                    capabilities: Capabilities::default(),
+                },
+                confirm_tx,
+            });
+        }
+        
+        // Should have one pending request
+        let pending = service.get_pending_requests().await;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].device_name, "Pending Device");
+    }
+
+    #[tokio::test]
+    async fn test_has_pending_requests() {
+        let service = PairingService::new();
+        
+        // Initially false
+        assert!(!service.has_pending_requests().await);
+        
+        // Add a pending request
+        let (confirm_tx, _confirm_rx) = oneshot::channel();
+        {
+            let mut pending = service.pending_confirmations.write().await;
+            pending.insert("pair-1".to_string(), PendingConfirmation {
+                pairing_id: "pair-1".to_string(),
+                request: PairingRequest {
+                    pairing_id: "pair-1".to_string(),
+                    device_id: "d".to_string(),
+                    device_name: "D".to_string(),
+                    public_key: "k".to_string(),
+                    capabilities: Capabilities::default(),
+                },
+                confirm_tx,
+            });
+        }
+        
+        // Should be true now
+        assert!(service.has_pending_requests().await);
+        
+        // Confirm it
+        service.confirm_pairing("pair-1", true).await.unwrap();
+        
+        // Should be false again
+        assert!(!service.has_pending_requests().await);
     }
 }
