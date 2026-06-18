@@ -10,6 +10,9 @@ pub enum CoreError {
     #[error("Already initialized")]
     AlreadyInitialized,
 
+    #[error("Initialization failed: {0}")]
+    InitFailed(String),
+
     #[error("IO error: {0}")]
     Io(String),
 
@@ -23,16 +26,16 @@ pub enum CoreError {
     Security(String),
 
     #[error("Storage error: {0}")]
-    Storage(String),
+    StorageFailed(String),
 
     #[error("Transfer error: {0}")]
-    Transfer(String),
+    TransferFailed(String),
 
     #[error("Discovery error: {0}")]
-    Discovery(String),
+    DiscoveryFailed(String),
 
     #[error("Pairing error: {0}")]
-    Pairing(String),
+    PairingFailed(String),
 
     #[error("Invalid state: {0}")]
     InvalidState(String),

@@ -2,6 +2,7 @@
 
 use mmc_discovery::DeviceType as DiscoveryDeviceType;
 use mmc_file_transfer::TransferState as FtTransferState;
+use mmc_storage::DeviceType as StorageDeviceType;
 use serde::{Deserialize, Serialize};
 
 /// Device type
@@ -25,6 +26,19 @@ impl From<DiscoveryDeviceType> for DeviceType {
             DiscoveryDeviceType::Pc => Self::Pc,
             DiscoveryDeviceType::Tv => Self::Tv,
             DiscoveryDeviceType::Wearable => Self::Wearable,
+        }
+    }
+}
+
+impl From<StorageDeviceType> for DeviceType {
+    fn from(dt: StorageDeviceType) -> Self {
+        match dt {
+            StorageDeviceType::Unknown => Self::Unknown,
+            StorageDeviceType::Phone => Self::Phone,
+            StorageDeviceType::Tablet => Self::Tablet,
+            StorageDeviceType::Pc => Self::Pc,
+            StorageDeviceType::Tv => Self::Tv,
+            StorageDeviceType::Wearable => Self::Wearable,
         }
     }
 }
@@ -79,6 +93,20 @@ pub struct TransferProgress {
     pub remaining_ms: u64,
     pub state: TransferState,
     pub percent: f32,
+}
+
+/// Transfer task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferTask {
+    pub task_id: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub total_size: u64,
+    pub chunk_size: u32,
+    pub total_chunks: u32,
+    pub state: TransferState,
+    pub progress: TransferProgress,
+    pub created_at: i64,
 }
 
 /// Core configuration

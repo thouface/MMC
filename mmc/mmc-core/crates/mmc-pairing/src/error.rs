@@ -24,6 +24,9 @@ pub enum Error {
 
     #[error("Security error: {0}")]
     Security(String),
+
+    #[error("Not found")]
+    NotFound,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

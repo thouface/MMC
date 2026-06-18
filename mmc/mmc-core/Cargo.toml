@@ -7,7 +7,11 @@ members = [
     "crates/mmc-pairing",
     "crates/mmc-file-transfer",
     "crates/mmc-storage",
+    "crates/mmc-transport",
+    "crates/mmc-clipboard",
     "crates/mmc-core-uniffi",
+    "crates/mmc-media-service",
+    "crates/mmc-desktop-app",
 ]
 
 [workspace.package]
@@ -31,6 +35,7 @@ x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 ed25519-dalek = { version = "2.0", features = ["rand_core"] }
 blake3 = "1.5"
 zeroize = { version = "1.7", features = ["derive"] }
+chacha20poly1305 = "0.10"
 
 # Networking
 async-trait = "0.1"

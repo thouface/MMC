@@ -15,6 +15,12 @@ pub enum Error {
 
     #[error("Service registration failed: {0}")]
     RegistrationFailed(String),
+
+    #[error("Network error: {0}")]
+    Network(String),
+
+    #[error("Protocol error: {0}")]
+    Protocol(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

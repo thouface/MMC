@@ -1,0 +1,16 @@
+# cargo-ndk configuration for MMC core.
+#
+# This file instructs cargo-ndk how to locate the Android NDK toolchain
+# when cross-compiling Rust for Android targets.
+#
+# Usage:
+#   cargo ndk --target arm64-v8a build --release
+#   cargo ndk --target armeabi-v7a build --release
+#   cargo ndk --target x86_64 build --release
+
+[package.metadata.android]
+targets = ["arm64-v8a", "armeabi-v7a", "x86_64"]
+min_sdk_version = 24
+
+[package.metadata.android.ndk]
+# Defaults to $ANDROID_NDK_HOME or $ANDROID_NDK_ROOT env variable.

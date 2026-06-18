@@ -1,0 +1,18 @@
+[package]
+name = "mmc-clipboard"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mmc-protocol = { path = "../mmc-protocol" }
+mmc-transport = { path = "../mmc-transport" }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+bytes = "1.6"
+chrono = { workspace = true }

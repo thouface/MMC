@@ -1,5 +1,7 @@
 //! Protocol types and frame definitions for MMC
 //! Custom TCP frame protocol for device communication
+//!
+//! Supports both JSON and Protobuf serialization.
 
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,10 @@ pub mod error {
 
     pub type Result<T> = std::result::Result<T, ProtocolError>;
 }
+pub mod protobuf;
+
+pub use error::ProtocolError;
+pub use error::Result;
 
 /// Frame types for the custom TCP protocol
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +49,11 @@ pub enum FrameType {
     TouchEvent = 0x0301,
     KeyEvent = 0x0302,
     ClipboardContent = 0x0303,
+    // Screen Mirroring
+    VideoFrame = 0x0401,
+    AudioFrame = 0x0402,
+    VideoConfig = 0x0403,
+    AudioConfig = 0x0404,
     // System
     Heartbeat = 0xFF01,
     Ping = 0xFF02,
@@ -63,6 +74,10 @@ impl FrameType {
             0x0301 => Some(Self::TouchEvent),
             0x0302 => Some(Self::KeyEvent),
             0x0303 => Some(Self::ClipboardContent),
+            0x0401 => Some(Self::VideoFrame),
+            0x0402 => Some(Self::AudioFrame),
+            0x0403 => Some(Self::VideoConfig),
+            0x0404 => Some(Self::AudioConfig),
             0xFF01 => Some(Self::Heartbeat),
             0xFF02 => Some(Self::Ping),
             0xFF03 => Some(Self::Pong),
@@ -310,6 +325,26 @@ pub struct KeyEvent {
     pub text: Option<String>,
 }
 
+/// Heartbeat message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Heartbeat {
+    pub timestamp_ms: u64,
+    pub device_id: String,
+}
+
+/// Ping message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ping {
+    pub timestamp_ms: u64,
+}
+
+/// Pong message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pong {
+    pub timestamp_ms: u64,
+    pub original_timestamp_ms: u64,
+}
+
 /// Clipboard content
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardContent {
@@ -324,6 +359,229 @@ pub enum ClipboardData {
     Text { text: String },
     Image { image_png: Vec<u8> },
     Url { url: String },
+}
+
+/// Video pixel format
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum PixelFormat {
+    Unknown = 0,
+    Rgba8888 = 1,
+    Bgra8888 = 2,
+    Rgb565 = 3,
+    Yuv420p = 4,
+    Nv12 = 5,
+}
+
+/// Video configuration message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoConfig {
+    pub width: u32,
+    pub height: u32,
+    pub pixel_format: PixelFormat,
+    pub frame_rate: u32,
+    pub codec: String,
+    pub bitrate: u32,
+}
+
+/// Video frame message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoFrame {
+    pub sequence_id: u64,
+    pub timestamp_ms: u64,
+    pub width: u32,
+    pub height: u32,
+    pub pixel_format: PixelFormat,
+    pub is_keyframe: bool,
+    pub data: Vec<u8>,
+}
+
+/// Audio sample format
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum SampleFormat {
+    Unknown = 0,
+    U8 = 1,
+    S16 = 2,
+    S32 = 3,
+    F32 = 4,
+}
+
+/// Audio configuration message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioConfig {
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub sample_format: SampleFormat,
+    pub codec: String,
+    pub bitrate: u32,
+}
+
+/// Audio frame message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioFrame {
+    pub sequence_id: u64,
+    pub timestamp_ms: u64,
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub sample_format: SampleFormat,
+    pub data: Vec<u8>,
+}
+
+// ============================================================
+// JSON Serialization Helpers
+// ============================================================
+
+impl DeviceInfo {
+    /// Serialize to JSON bytes
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    /// Deserialize from JSON bytes
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl PairingRequest {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl PairingResponse {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl FileManifestRequest {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl FileManifestResponse {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl TouchEvent {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl Heartbeat {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl Ping {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl Pong {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl ClipboardContent {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl KeyEvent {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl VideoConfig {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl VideoFrame {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl AudioConfig {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+}
+
+impl AudioFrame {
+    pub fn to_json(&self) -> error::Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
+
+    pub fn from_json(data: &[u8]) -> error::Result<Self> {
+        serde_json::from_slice(data).map_err(|e| error::ProtocolError::Serialization(e.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -358,8 +616,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_write_frame() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
         let (reader, mut writer) = tokio::io::duplex(1024);
 
         let frame = Frame::new(FrameType::Heartbeat, vec![]);
@@ -370,5 +626,199 @@ mod tests {
 
         assert_eq!(read_frame.frame_type, FrameType::Heartbeat);
         assert!(read_frame.payload.is_empty());
+    }
+
+    #[test]
+    fn test_json_serialization() {
+        let device_info = DeviceInfo {
+            id: "device-123".to_string(),
+            name: "Test Device".to_string(),
+            device_type: "phone".to_string(),
+            os_version: "Android 13".to_string(),
+            app_version: "1.0.0".to_string(),
+            ip: "192.168.1.100".to_string(),
+            port: 8080,
+        };
+
+        let json = device_info.to_json().unwrap();
+        let decoded = DeviceInfo::from_json(&json).unwrap();
+
+        assert_eq!(decoded.id, device_info.id);
+        assert_eq!(decoded.name, device_info.name);
+    }
+
+    #[test]
+    fn test_heartbeat_json_roundtrip() {
+        let heartbeat = Heartbeat {
+            timestamp_ms: 1234567890,
+            device_id: "device-abc".to_string(),
+        };
+
+        let json = heartbeat.to_json().unwrap();
+        let decoded = Heartbeat::from_json(&json).unwrap();
+
+        assert_eq!(decoded.timestamp_ms, heartbeat.timestamp_ms);
+        assert_eq!(decoded.device_id, heartbeat.device_id);
+    }
+
+    #[test]
+    fn test_ping_pong_json_roundtrip() {
+        let ping = Ping { timestamp_ms: 1234567890 };
+        let json = ping.to_json().unwrap();
+        let decoded_ping = Ping::from_json(&json).unwrap();
+        assert_eq!(decoded_ping.timestamp_ms, ping.timestamp_ms);
+
+        let pong = Pong {
+            timestamp_ms: 1234567895,
+            original_timestamp_ms: 1234567890,
+        };
+        let json = pong.to_json().unwrap();
+        let decoded_pong = Pong::from_json(&json).unwrap();
+        assert_eq!(decoded_pong.timestamp_ms, pong.timestamp_ms);
+        assert_eq!(decoded_pong.original_timestamp_ms, pong.original_timestamp_ms);
+    }
+
+    #[test]
+    fn test_clipboard_content_json_roundtrip() {
+        let clipboard_text = ClipboardContent {
+            timestamp_ms: 1234567890,
+            content: ClipboardData::Text { text: "Hello World".to_string() },
+        };
+        let json = clipboard_text.to_json().unwrap();
+        let decoded = ClipboardContent::from_json(&json).unwrap();
+        assert_eq!(decoded.timestamp_ms, clipboard_text.timestamp_ms);
+        if let ClipboardData::Text { text } = decoded.content {
+            assert_eq!(text, "Hello World");
+        }
+
+        let clipboard_url = ClipboardContent {
+            timestamp_ms: 1234567891,
+            content: ClipboardData::Url { url: "https://example.com".to_string() },
+        };
+        let json = clipboard_url.to_json().unwrap();
+        let decoded = ClipboardContent::from_json(&json).unwrap();
+        if let ClipboardData::Url { url } = decoded.content {
+            assert_eq!(url, "https://example.com");
+        }
+    }
+
+    #[test]
+    fn test_video_frame_json_roundtrip() {
+        let frame = VideoFrame {
+            sequence_id: 42,
+            timestamp_ms: 1234567890,
+            width: 1920,
+            height: 1080,
+            pixel_format: PixelFormat::Rgba8888,
+            is_keyframe: true,
+            data: vec![0xAA, 0xBB, 0xCC, 0xDD],
+        };
+        let json = frame.to_json().unwrap();
+        let decoded = VideoFrame::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, frame.sequence_id);
+        assert_eq!(decoded.width, frame.width);
+        assert_eq!(decoded.height, frame.height);
+        assert_eq!(decoded.pixel_format, frame.pixel_format);
+        assert_eq!(decoded.is_keyframe, frame.is_keyframe);
+        assert_eq!(decoded.data, frame.data);
+    }
+
+    #[test]
+    fn test_video_config_json_roundtrip() {
+        let config = VideoConfig {
+            width: 1920,
+            height: 1080,
+            pixel_format: PixelFormat::Rgba8888,
+            frame_rate: 30,
+            codec: "raw".to_string(),
+            bitrate: 5000000,
+        };
+        let json = config.to_json().unwrap();
+        let decoded = VideoConfig::from_json(&json).unwrap();
+
+        assert_eq!(decoded.width, config.width);
+        assert_eq!(decoded.height, config.height);
+        assert_eq!(decoded.pixel_format, config.pixel_format);
+        assert_eq!(decoded.frame_rate, config.frame_rate);
+        assert_eq!(decoded.codec, config.codec);
+    }
+
+    #[test]
+    fn test_audio_frame_json_roundtrip() {
+        let frame = AudioFrame {
+            sequence_id: 7,
+            timestamp_ms: 1234567890,
+            sample_rate: 44100,
+            channels: 2,
+            sample_format: SampleFormat::S16,
+            data: vec![0x01, 0x02, 0x03, 0x04],
+        };
+        let json = frame.to_json().unwrap();
+        let decoded = AudioFrame::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, frame.sequence_id);
+        assert_eq!(decoded.sample_rate, frame.sample_rate);
+        assert_eq!(decoded.channels, frame.channels);
+        assert_eq!(decoded.sample_format, frame.sample_format);
+        assert_eq!(decoded.data, frame.data);
+    }
+
+    #[test]
+    fn test_key_event_json_roundtrip() {
+        let event = KeyEvent {
+            sequence_id: 100,
+            timestamp_ms: 1234567890,
+            key_type: KeyEventType::Down,
+            key_code: 65,
+            text: None,
+        };
+        let json = event.to_json().unwrap();
+        let decoded = KeyEvent::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, event.sequence_id);
+        assert_eq!(decoded.key_type, event.key_type);
+        assert_eq!(decoded.key_code, event.key_code);
+
+        let event_text = KeyEvent {
+            sequence_id: 101,
+            timestamp_ms: 1234567891,
+            key_type: KeyEventType::Text,
+            key_code: 0,
+            text: Some("Hello".to_string()),
+        };
+        let json = event_text.to_json().unwrap();
+        let decoded = KeyEvent::from_json(&json).unwrap();
+        assert_eq!(decoded.text, event_text.text);
+    }
+
+    #[test]
+    fn test_touch_event_json_roundtrip() {
+        let event = TouchEvent {
+            sequence_id: 1,
+            timestamp_ms: 1234567890,
+            touch_type: TouchType::Down,
+            x: 100.5,
+            y: 200.3,
+            pressure: 0.8,
+            touch_major: 5.0,
+            pointer_id: 0,
+        };
+        let json = event.to_json().unwrap();
+        let decoded = TouchEvent::from_json(&json).unwrap();
+
+        assert_eq!(decoded.sequence_id, event.sequence_id);
+        assert_eq!(decoded.touch_type, event.touch_type);
+        assert_eq!(decoded.x, event.x);
+        assert_eq!(decoded.y, event.y);
+        assert_eq!(decoded.pressure, event.pressure);
+    }
+
+    #[test]
+    fn test_new_frame_types() {
+        assert_eq!(FrameType::from_u16(0x0401), Some(FrameType::VideoFrame));
+        assert_eq!(FrameType::from_u16(0x0402), Some(FrameType::AudioFrame));
+        assert_eq!(FrameType::from_u16(0x0403), Some(FrameType::VideoConfig));
+        assert_eq!(FrameType::from_u16(0x0404), Some(FrameType::AudioConfig));
     }
 }
