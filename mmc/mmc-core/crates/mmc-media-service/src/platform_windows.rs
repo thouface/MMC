@@ -35,7 +35,7 @@ impl WindowsScreenCapturer {
     fn get_primary_display_size() -> (u32, u32) {
         #[cfg(windows)]
         {
-            use windows::Win32::Graphics::Gdi::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+            use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
             unsafe {
                 let width = GetSystemMetrics(SM_CXSCREEN);
@@ -54,16 +54,16 @@ impl WindowsScreenCapturer {
         use windows::Win32::Graphics::Gdi::{
             BitBlt, CreateCompatibleDC, CreateCompatibleBitmap, SelectObject,
             DeleteDC, DeleteObject, ReleaseDC, SRCCOPY, BITMAPINFO, BITMAPINFOHEADER,
-            DIB_RGB_COLORS, CreateDIBSection, GetDC,
+            DIB_RGB_COLORS, CreateDIBSection, GetDC, HBITMAP,
         };
-        use windows::Win32::Foundation::{HBITMAP, HANDLE, HWND};
+        use windows::Win32::Foundation::{HANDLE, HWND};
 
         unsafe {
             let hwnd = HWND::default();
             let screen_dc = GetDC(hwnd);
             let mem_dc = CreateCompatibleDC(screen_dc);
             let bitmap = CreateCompatibleBitmap(screen_dc, self.width as i32, self.height as i32);
-            let _old_bitmap = SelectObject(mem_dc, HANDLE(bitmap.0 as isize));
+            let _old_bitmap = SelectObject(mem_dc, bitmap);
 
             BitBlt(
                 mem_dc,
@@ -223,16 +223,17 @@ impl WindowsInputInjector {
 
     #[cfg(windows)]
     fn send_mouse_event(&self, x: i32, y: i32, down: bool) -> Result<()> {
-        use windows::Win32::UI::WindowsAndMessaging::{
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
             SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_MOVE,
             MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_ABSOLUTE,
+            MOUSEINPUT,
         };
 
         unsafe {
             let inputs = [INPUT {
                 r#type: INPUT_MOUSE,
                 Anonymous: INPUT_0 {
-                    mi: windows::Win32::UI::WindowsAndMessaging::MOUSEINPUT {
+                    mi: MOUSEINPUT {
                         dx: ((x as f64 / self.screen_width as f64) * 65535.0) as i32,
                         dy: ((y as f64 / self.screen_height as f64) * 65535.0) as i32,
                         mouseData: 0,
@@ -248,7 +249,7 @@ impl WindowsInputInjector {
                 [INPUT {
                     r#type: INPUT_MOUSE,
                     Anonymous: INPUT_0 {
-                        mi: windows::Win32::UI::WindowsAndMessaging::MOUSEINPUT {
+                        mi: MOUSEINPUT {
                             dx: 0, dy: 0, mouseData: 0,
                             dwFlags: MOUSEEVENTF_LEFTDOWN,
                             time: 0, dwExtraInfo: 0,
@@ -259,7 +260,7 @@ impl WindowsInputInjector {
                 [INPUT {
                     r#type: INPUT_MOUSE,
                     Anonymous: INPUT_0 {
-                        mi: windows::Win32::UI::WindowsAndMessaging::MOUSEINPUT {
+                        mi: MOUSEINPUT {
                             dx: 0, dy: 0, mouseData: 0,
                             dwFlags: MOUSEEVENTF_LEFTUP,
                             time: 0, dwExtraInfo: 0,
@@ -274,9 +275,9 @@ impl WindowsInputInjector {
 
     #[cfg(windows)]
     fn send_key_event(&self, vk_code: i32, down: bool) -> Result<()> {
-        use windows::Win32::UI::WindowsAndMessaging::{
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
             SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-            KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+            KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VIRTUAL_KEY,
         };
 
         unsafe {
@@ -284,7 +285,7 @@ impl WindowsInputInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: windows::Win32::UI::WindowsAndMessaging::VIRTUAL_KEY(vk_code as u16),
+                        wVk: VIRTUAL_KEY(vk_code as u16),
                         wScan: 0,
                         dwFlags: if down { KEYBD_EVENT_FLAGS(0) } else { KEYEVENTF_KEYUP },
                         time: 0,
