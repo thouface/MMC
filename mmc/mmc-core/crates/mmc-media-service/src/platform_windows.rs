@@ -56,7 +56,7 @@ impl WindowsScreenCapturer {
             DeleteDC, DeleteObject, ReleaseDC, SRCCOPY, BITMAPINFO, BITMAPINFOHEADER,
             DIB_RGB_COLORS, CreateDIBSection, GetDC, HBITMAP,
         };
-        use windows::Win32::Foundation::{HANDLE, HWND};
+        use windows::Win32::Foundation::HWND;
 
         unsafe {
             let hwnd = HWND::default();
@@ -106,7 +106,7 @@ impl WindowsScreenCapturer {
             }
 
             DeleteDC(mem_dc);
-            DeleteObject(HBITMAP(bitmap.0 as isize));
+            DeleteObject(bitmap);
             ReleaseDC(hwnd, screen_dc);
 
             Ok(pixels)
