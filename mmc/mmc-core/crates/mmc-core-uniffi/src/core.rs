@@ -428,9 +428,24 @@ impl MmcCore {
         })
     }
 
-    pub fn cancel_transfer(&self, _task_id: &str) -> CoreStatus {
-        // TODO: Implement actual cancellation
-        CoreStatus::Ok
+    pub fn cancel_transfer(&self, task_id: &str) -> CoreStatus {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let initialized = *self.initialized.read().await;
+            if !initialized {
+                return CoreStatus::NotInitialized;
+            }
+
+            let file_transfer = self.file_transfer.read().await;
+            if let Some(ft) = file_transfer.as_ref() {
+                match ft.cancel(task_id).await {
+                    Ok(_) => CoreStatus::Ok,
+                    Err(_) => CoreStatus::TransferFailed,
+                }
+            } else {
+                CoreStatus::TransferFailed
+            }
+        })
     }
 
     // Paired devices methods
@@ -693,5 +708,37 @@ mod tests {
         let result = PairingResult::from(inner);
         assert!(!result.success);
         assert_eq!(result.error_message, Some("User rejected".to_string()));
+    }
+    #[test]
+    fn test_cancel_transfer() {
+        let core = MmcCore::new();
+        let dir = tempdir().unwrap();
+
+        let config = CoreConfig {
+            device_id: "test-device".to_string(),
+            device_name: "Test Device".to_string(),
+            device_type: crate::types::DeviceType::Pc,
+            app_version: "1.0.0".to_string(),
+            log_dir: Some(dir.path().to_string_lossy().to_string()),
+        };
+
+        // Init core first
+        let status = core.init(config);
+        assert_eq!(status, CoreStatus::Ok);
+
+        // Cancel non-existent transfer should succeed (graceful handling)
+        let status = core.cancel_transfer("nonexistent-task");
+        assert_eq!(status, CoreStatus::Ok);
+
+        let _ = core.shutdown();
+    }
+
+    #[test]
+    fn test_cancel_transfer_not_initialized() {
+        let core = MmcCore::new();
+
+        // Cancel without initialization should return NotInitialized
+        let status = core.cancel_transfer("any-task");
+        assert_eq!(status, CoreStatus::NotInitialized);
     }
 }

@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 include!("generated/mmc.v1.rs");
 
 /// Device type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[repr(i32)]
 pub enum ProtoDeviceType {
+    #[default]
     Unknown = 0,
     Phone = 1,
     Tablet = 2,
@@ -20,16 +21,11 @@ pub enum ProtoDeviceType {
     Wearable = 5,
 }
 
-impl Default for ProtoDeviceType {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
 /// Transfer error reason
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[repr(i32)]
 pub enum ProtoTransferErrorReason {
+    #[default]
     None = 0,
     DiskFull = 1,
     PermissionDenied = 2,
@@ -37,16 +33,11 @@ pub enum ProtoTransferErrorReason {
     SizeLimitExceeded = 4,
 }
 
-impl Default for ProtoTransferErrorReason {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
 /// Touch event type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[repr(i32)]
 pub enum ProtoTouchType {
+    #[default]
     Unknown = 0,
     Down = 1,
     Move = 2,
@@ -54,28 +45,16 @@ pub enum ProtoTouchType {
     Cancel = 4,
 }
 
-impl Default for ProtoTouchType {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
 /// Key event type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[repr(i32)]
 pub enum ProtoKeyEventType {
+    #[default]
     Unknown = 0,
     Down = 1,
     Up = 2,
     Text = 3,
 }
-
-impl Default for ProtoKeyEventType {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
