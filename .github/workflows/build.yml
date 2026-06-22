@@ -1,0 +1,145 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [main, master, "trae/**"]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Build Windows x86_64 (MSVC)
+  build-windows-msvc:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - x86_64-pc-windows-gnu
+        include:
+          - target: x86_64-pc-windows-msvc
+            toolchain: msvc
+          - target: x86_64-pc-windows-gnu
+            toolchain: gnu
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: mmc-core/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build mmc-desktop (CLI)
+        working-directory: mmc-core
+        run: |
+          cargo build --release --bin mmc-desktop --target ${{ matrix.target }}
+
+      - name: Build mmc-gui (GUI)
+        working-directory: mmc-core
+        run: |
+          cargo build --release --bin mmc-gui --target ${{ matrix.target }}
+
+      - name: Prepare artifacts
+        working-directory: mmc-core
+        shell: pwsh
+        run: |
+          $target = "${{ matrix.target }}"
+          $arch = if ($target -match "x86_64") { "x64" } else { "x86" }
+          $toolchain = "${{ matrix.toolchain }}"
+          
+          # CLI executable
+          $cliExePath = "target/$target/release/mmc-desktop.exe"
+          if (Test-Path $cliExePath) {
+            Copy-Item $cliExePath "mmc-desktop-$arch-$toolchain.exe"
+            Compress-Archive -Path "mmc-desktop-$arch-$toolchain.exe" -DestinationPath "mmc-desktop-$arch-$toolchain.zip"
+            Write-Host "CLI artifact created: mmc-desktop-$arch-$toolchain.zip"
+          } else {
+            Write-Host "Warning: CLI executable not found at $cliExePath"
+          }
+          
+          # GUI executable
+          $guiExePath = "target/$target/release/mmc-gui.exe"
+          if (Test-Path $guiExePath) {
+            Copy-Item $guiExePath "mmc-gui-$arch-$toolchain.exe"
+            Compress-Archive -Path "mmc-gui-$arch-$toolchain.exe" -DestinationPath "mmc-gui-$arch-$toolchain.zip"
+            Write-Host "GUI artifact created: mmc-gui-$arch-$toolchain.zip"
+          } else {
+            Write-Host "Warning: GUI executable not found at $guiExePath"
+          }
+          
+          dir *.zip
+
+      - name: Upload CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmc-desktop-${{ matrix.target }}
+          path: |
+            mmc-core/mmc-desktop-*.zip
+          if-no-files-found: error
+
+      - name: Upload GUI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmc-gui-${{ matrix.target }}
+          path: |
+            mmc-core/mmc-gui-*.zip
+          if-no-files-found: error
+
+  # Build and create release
+  release:
+    needs: build-windows-msvc
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Prepare release files
+        run: |
+          # Flatten artifacts directory for easier release upload
+          mkdir -p release
+          find artifacts -name "*.zip" -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          generate_release_notes: true
+          files: |
+            release/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
