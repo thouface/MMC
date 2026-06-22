@@ -531,7 +531,6 @@ mod tests {
         let frame2 = recorder.record_frame().await.unwrap();
         assert!(frame2.sequence_id > frame.sequence_id);
     }
-
     #[test]
     fn test_touch_event_injection() {
         let injector = WindowsInputInjector::new();

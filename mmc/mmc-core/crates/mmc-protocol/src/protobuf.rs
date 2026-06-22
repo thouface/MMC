@@ -55,7 +55,6 @@ pub enum ProtoKeyEventType {
     Up = 2,
     Text = 3,
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

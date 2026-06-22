@@ -709,7 +709,6 @@ mod tests {
         assert!(!result.success);
         assert_eq!(result.error_message, Some("User rejected".to_string()));
     }
-
     #[test]
     fn test_cancel_transfer() {
         let core = MmcCore::new();
