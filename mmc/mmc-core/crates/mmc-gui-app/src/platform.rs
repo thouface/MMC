@@ -47,7 +47,8 @@ pub fn get_platform_info() -> PlatformInfo {
 
 #[cfg(windows)]
 pub fn get_screen_size() -> (u32, u32) {
-    use windows::Win32::Graphics::Gdi::{GetDC, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+    use windows::Win32::Graphics::Gdi::GetDC;
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
     use windows::Win32::Foundation::HWND;
 
     unsafe {

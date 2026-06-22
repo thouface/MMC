@@ -211,7 +211,7 @@ impl eframe::App for MmcGuiApp {
                 for (tab, label) in tabs {
                     let selected = self.selected_tab == tab;
                     let text = RichText::new(label).strong().size(14.0);
-                    let mut button = Button::new(text)
+                    let button = Button::new(text)
                         .fill(if selected {
                             Color32::from_rgb(99, 102, 241)
                         } else {
