@@ -22,6 +22,11 @@ jobs:
         target:
           - x86_64-pc-windows-msvc
           - x86_64-pc-windows-gnu
+        include:
+          - target: x86_64-pc-windows-msvc
+            toolchain: msvc
+          - target: x86_64-pc-windows-gnu
+            toolchain: gnu
 
     steps:
       - name: Checkout repository
@@ -47,38 +52,60 @@ jobs:
           path: mmc-core/target
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build mmc-desktop
+      - name: Build mmc-desktop (CLI)
         working-directory: mmc-core
         run: |
           cargo build --release --bin mmc-desktop --target ${{ matrix.target }}
 
-      - name: Prepare artifact
+      - name: Build mmc-gui (GUI)
+        working-directory: mmc-core
+        run: |
+          cargo build --release --bin mmc-gui --target ${{ matrix.target }}
+
+      - name: Prepare artifacts
         working-directory: mmc-core
         shell: pwsh
         run: |
           $target = "${{ matrix.target }}"
           $arch = if ($target -match "x86_64") { "x64" } else { "x86" }
-          $toolchain = if ($target -match "gnu") { "gnu" } else { "msvc" }
+          $toolchain = "${{ matrix.toolchain }}"
           
-          $exePath = "target/$target/release/mmc-desktop.exe"
-          if (Test-Path $exePath) {
-            Copy-Item $exePath "mmc-desktop-$arch-$toolchain.exe"
-            
-            # Create zip archive
+          # CLI executable
+          $cliExePath = "target/$target/release/mmc-desktop.exe"
+          if (Test-Path $cliExePath) {
+            Copy-Item $cliExePath "mmc-desktop-$arch-$toolchain.exe"
             Compress-Archive -Path "mmc-desktop-$arch-$toolchain.exe" -DestinationPath "mmc-desktop-$arch-$toolchain.zip"
-            
-            Write-Host "Artifact created: mmc-desktop-$arch-$toolchain.zip"
-            dir *.zip
+            Write-Host "CLI artifact created: mmc-desktop-$arch-$toolchain.zip"
           } else {
-            Write-Host "Error: Executable not found at $exePath"
-            exit 1
+            Write-Host "Warning: CLI executable not found at $cliExePath"
           }
+          
+          # GUI executable
+          $guiExePath = "target/$target/release/mmc-gui.exe"
+          if (Test-Path $guiExePath) {
+            Copy-Item $guiExePath "mmc-gui-$arch-$toolchain.exe"
+            Compress-Archive -Path "mmc-gui-$arch-$toolchain.exe" -DestinationPath "mmc-gui-$arch-$toolchain.zip"
+            Write-Host "GUI artifact created: mmc-gui-$arch-$toolchain.zip"
+          } else {
+            Write-Host "Warning: GUI executable not found at $guiExePath"
+          }
+          
+          dir *.zip
 
-      - name: Upload artifact
+      - name: Upload CLI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mmc-desktop-${{ matrix.target }}
-          path: mmc-core/*.zip
+          path: |
+            mmc-core/mmc-desktop-*.zip
+          if-no-files-found: error
+
+      - name: Upload GUI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmc-gui-${{ matrix.target }}
+          path: |
+            mmc-core/mmc-gui-*.zip
           if-no-files-found: error
 
   # Build and create release
@@ -99,12 +126,20 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
 
+      - name: Prepare release files
+        run: |
+          # Flatten artifacts directory for easier release upload
+          mkdir -p release
+          find artifacts -name "*.zip" -exec cp {} release/ \;
+          ls -la release/
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          generate_release_notes: true
           files: |
-            artifacts/**/*.zip
+            release/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

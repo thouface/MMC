@@ -12,6 +12,7 @@ members = [
     "crates/mmc-core-uniffi",
     "crates/mmc-media-service",
     "crates/mmc-desktop-app",
+    "crates/mmc-gui-app",
 ]
 
 [workspace.package]
