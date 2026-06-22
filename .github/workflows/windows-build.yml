@@ -1,10 +1,8 @@
 name: Build Windows Executable
-# 权限配置（必须，发布Release上传文件）
 permissions:
   contents: write
   pull-requests: read
 
-# ========== 关键：补全 on 触发块，解决缺失on报错 ==========
 on:
   push:
     branches: [main, master, "trae/**"]
@@ -12,7 +10,7 @@ on:
       - 'v*'
   pull_request:
     branches: [main, master]
-  workflow_dispatch: # 支持页面手动运行
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -53,6 +51,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           components: rust-src
+
+      - name: Install protoc (Protobuf Compiler)
+        shell: pwsh
+        run: |
+          choco install protoc --no-progress -y
+          echo "$env:ChocolateyInstall\bin" >> $env:GITHUB_PATH
+          protoc --version
 
       - name: Cache cargo registry
         uses: actions/cache@v4
