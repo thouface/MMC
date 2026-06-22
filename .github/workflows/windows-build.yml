@@ -1,3 +1,24 @@
+name: Build Windows Executable
+# 权限配置（必须，发布Release上传文件）
+permissions:
+  contents: write
+  pull-requests: read
+
+# ========== 关键：补全 on 触发块，解决缺失on报错 ==========
+on:
+  push:
+    branches: [main, master, "trae/**"]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch: # 支持页面手动运行
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-C opt-level=3 -C strip=symbols"
+
 jobs:
   build-windows:
     name: Build Windows ${{ matrix.target }}
@@ -17,7 +38,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 校验正确目录层级 mmc/mmc-core
       - name: Check repo root structure
         shell: pwsh
         run: |
@@ -43,7 +63,6 @@ jobs:
             ~/.cargo/git/db
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-      # 缓存路径同步改为 mmc/mmc-core/target
       - name: Cache cargo build target
         uses: actions/cache@v4
         with:
@@ -52,7 +71,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-build-
 
-      # 构建命令 cd 进入 mmc/mmc-core
       - name: Build CLI mmc-desktop
         shell: pwsh
         run: |
@@ -65,7 +83,6 @@ jobs:
           cd ./mmc/mmc-core
           cargo build --release --bin mmc-gui --target ${{ matrix.target }}
 
-      # 打包脚本同样进入 mmc/mmc-core
       - name: Package EXE & collect MinGW DLL
         shell: pwsh
         run: |
@@ -85,7 +102,6 @@ jobs:
           Copy-Item $cliExe "$outDir/mmc-desktop-$arch-$toolchain.exe"
           Copy-Item $guiExe "$outDir/mmc-gui-$arch-$toolchain.exe"
 
-          # GNU 打包依赖dll
           if ($toolchain -eq "gnu") {
             $mingwBin = "$env:USERPROFILE\.rustup\toolchains\stable-x86_64-pc-windows-gnu\x86_64-w64-mingw32\bin"
             Copy-Item "$mingwBin\libgcc_s_seh-1.dll" $outDir
@@ -99,10 +115,40 @@ jobs:
           Write-Host "打包完成：$zipName"
           Remove-Item -Recurse -Force $outDir
 
-      # 上传路径修正为 mmc/mmc-core 下的zip
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}-${{ matrix.toolchain }}
           path: mmc/mmc-core/mmc-windows-*.zip
           if-no-files-found: error
+
+  release-binaries:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build-artifacts
+          merge-multiple: true
+
+      - name: Flatten release assets
+        run: |
+          mkdir -p upload
+          find build-artifacts -name "*.zip" -exec cp {} upload/ \;
+          ls -lh upload/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          generate_release_notes: true
+          files: upload/*.zip
+          name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
