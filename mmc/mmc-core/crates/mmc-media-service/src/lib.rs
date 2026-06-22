@@ -16,7 +16,6 @@ pub mod session;
 pub mod codec;
 pub mod platform;
 pub mod platform_android;
-#[cfg(windows)]
 pub mod platform_windows;
 
 pub use error::{MediaError, Result};
@@ -30,5 +29,4 @@ pub use platform::{PlatformType, PlatformAdapter, ScreenCapturer, AudioRecorder,
                    MockAudioRecorder, MockInputInjector};
 pub use platform_android::{AndroidScreenCapturer, AndroidInputInjector};
 
-#[cfg(windows)]
 pub use platform_windows::{WindowsScreenCapturer, WindowsInputInjector, WindowsAudioRecorder};
