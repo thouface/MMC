@@ -1,0 +1,159 @@
+name: Build Windows Executable
+permissions:
+  contents: write
+  pull-requests: read
+
+on:
+  push:
+    branches: [main, master, "trae/**"]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-C opt-level=3 -C strip=symbols"
+
+jobs:
+  build-windows:
+    name: Build Windows ${{ matrix.target }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            toolchain: msvc
+            arch: x64
+          - target: x86_64-pc-windows-gnu
+            toolchain: gnu
+            arch: x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check repo root structure
+        shell: pwsh
+        run: |
+          Write-Host "当前仓库根目录: $(Get-Location)"
+          Write-Host "根目录文件列表:"
+          Get-ChildItem ./
+          if (-not (Test-Path ./mmc/mmc-core)) {
+            throw "致命错误：未找到源码目录 ./mmc/mmc-core！目录层级错误"
+          }
+
+      - name: Install Rust stable + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rust-src
+
+      - name: Install protoc (Protobuf Compiler)
+        shell: pwsh
+        run: |
+          choco install protoc --no-progress -y
+          echo "$env:ChocolateyInstall\bin" >> $env:GITHUB_PATH
+          protoc --version
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build target
+        uses: actions/cache@v4
+        with:
+          path: mmc/mmc-core/target
+          key: ${{ runner.os }}-${{ matrix.target }}-build-${{ hashFiles('mmc/mmc-core/Cargo.toml', 'mmc/mmc-core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-build-
+
+      - name: Build CLI mmc-desktop
+        shell: pwsh
+        run: |
+          cd ./mmc/mmc-core
+          cargo build --release --bin mmc-desktop --target ${{ matrix.target }}
+
+      - name: Build GUI mmc-gui
+        shell: pwsh
+        run: |
+          cd ./mmc/mmc-core
+          cargo build --release --bin mmc-gui --target ${{ matrix.target }}
+
+      - name: Package EXE & collect MinGW DLL
+        shell: pwsh
+        run: |
+          cd ./mmc/mmc-core
+          $target = "${{ matrix.target }}"
+          $arch = "${{ matrix.arch }}"
+          $toolchain = "${{ matrix.toolchain }}"
+          $outDir = "release-pack"
+          New-Item -ItemType Directory -Force $outDir | Out-Null
+
+          $cliExe = "target/$target/release/mmc-desktop.exe"
+          $guiExe = "target/$target/release/mmc-gui.exe"
+
+          if (-not (Test-Path $cliExe)) { throw "CLI 编译产物缺失：$cliExe" }
+          if (-not (Test-Path $guiExe)) { throw "GUI 编译产物缺失：$guiExe" }
+
+          Copy-Item $cliExe "$outDir/mmc-desktop-$arch-$toolchain.exe"
+          Copy-Item $guiExe "$outDir/mmc-gui-$arch-$toolchain.exe"
+
+          if ($toolchain -eq "gnu") {
+            $mingwBin = "$env:USERPROFILE\.rustup\toolchains\stable-x86_64-pc-windows-gnu\x86_64-w64-mingw32\bin"
+            Copy-Item "$mingwBin\libgcc_s_seh-1.dll" $outDir
+            Copy-Item "$mingwBin\libstdc++-6.dll" $outDir
+            Copy-Item "$mingwBin\libwinpthread-1.dll" $outDir
+            Write-Host "已复制MinGW运行依赖DLL"
+          }
+
+          $zipName = "mmc-windows-$arch-$toolchain.zip"
+          Compress-Archive -Path "$outDir/*" -DestinationPath $zipName -Force
+          Write-Host "打包完成：$zipName"
+          Remove-Item -Recurse -Force $outDir
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-${{ matrix.toolchain }}
+          path: mmc/mmc-core/mmc-windows-*.zip
+          if-no-files-found: error
+
+  release-binaries:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build-artifacts
+          merge-multiple: true
+
+      - name: Flatten release assets
+        run: |
+          mkdir -p upload
+          find build-artifacts -name "*.zip" -exec cp {} upload/ \;
+          ls -lh upload/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          generate_release_notes: true
+          files: upload/*.zip
+          name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
