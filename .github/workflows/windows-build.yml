@@ -1,30 +1,9 @@
-name: Build Windows Executable
-
-# 工作流权限（必须，否则release无法上传文件）
-permissions:
-  contents: write
-  pull-requests: read
-
-on:
-  push:
-    branches: [main, master, "trae/**"]
-    tags:
-      - 'v*'
-  pull_request:
-    branches: [main, master]
-  workflow_dispatch: # 手动触发
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: "-C opt-level=3 -C strip=symbols" # 优化体积、剥离调试符号
-
 jobs:
   build-windows:
     name: Build Windows ${{ matrix.target }}
     runs-on: windows-latest
     strategy:
-      fail-fast: false # 一个target失败不取消另一个
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-pc-windows-msvc
@@ -38,13 +17,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 校验正确目录层级 mmc/mmc-core
+      - name: Check repo root structure
+        shell: pwsh
+        run: |
+          Write-Host "当前仓库根目录: $(Get-Location)"
+          Write-Host "根目录文件列表:"
+          Get-ChildItem ./
+          if (-not (Test-Path ./mmc/mmc-core)) {
+            throw "致命错误：未找到源码目录 ./mmc/mmc-core！目录层级错误"
+          }
+
       - name: Install Rust stable + target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
           components: rust-src
 
-      # 缓存 Cargo 依赖注册表
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -54,96 +43,66 @@ jobs:
             ~/.cargo/git/db
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-      # 缓存分架构构建目录，避免跨target污染
+      # 缓存路径同步改为 mmc/mmc-core/target
       - name: Cache cargo build target
         uses: actions/cache@v4
         with:
-          path: mmc-core/target
-          key: ${{ runner.os }}-${{ matrix.target }}-build-${{ hashFiles('mmc-core/Cargo.toml', 'mmc-core/Cargo.lock') }}
+          path: mmc/mmc-core/target
+          key: ${{ runner.os }}-${{ matrix.target }}-build-${{ hashFiles('mmc/mmc-core/Cargo.toml', 'mmc/mmc-core/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-build-
 
+      # 构建命令 cd 进入 mmc/mmc-core
       - name: Build CLI mmc-desktop
-        working-directory: mmc-core
-        run: cargo build --release --bin mmc-desktop --target ${{ matrix.target }}
-
-      - name: Build GUI mmc-gui
-        working-directory: mmc-core
-        run: cargo build --release --bin mmc-gui --target ${{ matrix.target }}
-
-      - name: Package EXE & collect dependencies (PowerShell)
-        working-directory: mmc-core
         shell: pwsh
         run: |
+          cd ./mmc/mmc-core
+          cargo build --release --bin mmc-desktop --target ${{ matrix.target }}
+
+      - name: Build GUI mmc-gui
+        shell: pwsh
+        run: |
+          cd ./mmc/mmc-core
+          cargo build --release --bin mmc-gui --target ${{ matrix.target }}
+
+      # 打包脚本同样进入 mmc/mmc-core
+      - name: Package EXE & collect MinGW DLL
+        shell: pwsh
+        run: |
+          cd ./mmc/mmc-core
           $target = "${{ matrix.target }}"
           $arch = "${{ matrix.arch }}"
           $toolchain = "${{ matrix.toolchain }}"
           $outDir = "release-pack"
           New-Item -ItemType Directory -Force $outDir | Out-Null
 
-          # 定义源路径
           $cliExe = "target/$target/release/mmc-desktop.exe"
           $guiExe = "target/$target/release/mmc-gui.exe"
 
-          # 复制CLI
-          if (-not (Test-Path $cliExe)) { throw "CLI exe missing: $cliExe" }
-          Copy-Item $cliExe "$outDir/mmc-desktop-$arch-$toolchain.exe"
+          if (-not (Test-Path $cliExe)) { throw "CLI 编译产物缺失：$cliExe" }
+          if (-not (Test-Path $guiExe)) { throw "GUI 编译产物缺失：$guiExe" }
 
-          # 复制GUI
-          if (-not (Test-Path $guiExe)) { throw "GUI exe missing: $guiExe" }
+          Copy-Item $cliExe "$outDir/mmc-desktop-$arch-$toolchain.exe"
           Copy-Item $guiExe "$outDir/mmc-gui-$arch-$toolchain.exe"
 
-          # GNU 额外打包 MinGW 依赖DLL（解决用户运行缺少libgcc/libstdc++）
+          # GNU 打包依赖dll
           if ($toolchain -eq "gnu") {
             $mingwBin = "$env:USERPROFILE\.rustup\toolchains\stable-x86_64-pc-windows-gnu\x86_64-w64-mingw32\bin"
             Copy-Item "$mingwBin\libgcc_s_seh-1.dll" $outDir
             Copy-Item "$mingwBin\libstdc++-6.dll" $outDir
             Copy-Item "$mingwBin\libwinpthread-1.dll" $outDir
-            Write-Host "MinGW DLLs copied for GNU target"
+            Write-Host "已复制MinGW运行依赖DLL"
           }
 
-          # 打包压缩包
           $zipName = "mmc-windows-$arch-$toolchain.zip"
           Compress-Archive -Path "$outDir/*" -DestinationPath $zipName -Force
-          Write-Host "Generated artifact: $zipName"
+          Write-Host "打包完成：$zipName"
           Remove-Item -Recurse -Force $outDir
 
-      # 统一上传当前target全部zip产物（合并原来两次upload步骤）
+      # 上传路径修正为 mmc/mmc-core 下的zip
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}-${{ matrix.toolchain }}
-          path: mmc-core/mmc-windows-*.zip
+          path: mmc/mmc-core/mmc-windows-*.zip
           if-no-files-found: error
-
-  # Tag推送/手动触发时自动创建Release并上传所有zip
-  release-binaries:
-    needs: build-windows
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: build-artifacts
-          merge-multiple: true # 自动合并所有矩阵产物到同一目录
-
-      - name: Flatten release assets
-        run: |
-          mkdir -p upload
-          find build-artifacts -name "*.zip" -exec cp {} upload/ \;
-          ls -lh upload/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-          generate_release_notes: true
-          files: upload/*.zip
-          name: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
