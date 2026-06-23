@@ -108,11 +108,22 @@ jobs:
           Copy-Item $guiExe "$outDir/mmc-gui-$arch-$toolchain.exe"
 
           if ($toolchain -eq "gnu") {
-            $mingwBin = "$env:USERPROFILE\.rustup\toolchains\stable-x86_64-pc-windows-gnu\x86_64-w64-mingw32\bin"
-            Copy-Item "$mingwBin\libgcc_s_seh-1.dll" $outDir
-            Copy-Item "$mingwBin\libstdc++-6.dll" $outDir
-            Copy-Item "$mingwBin\libwinpthread-1.dll" $outDir
-            Write-Host "已复制MinGW运行依赖DLL"
+            # 获取当前gnu工具链路径
+            $rustupPath = rustup which rustc --toolchain stable-x86_64-pc-windows-gnu
+            $mingwBin = Split-Path $rustupPath -Parent
+            Write-Host "MinGW bin目录: $mingwBin"
+
+            # 批量复制所有依赖dll，容错不存在的文件
+            $dllList = @("libgcc_s_seh-1.dll","libstdc++-6.dll","libwinpthread-1.dll")
+            foreach ($dll in $dllList) {
+              $dllPath = Join-Path $mingwBin $dll
+              if (Test-Path $dllPath) {
+                Copy-Item $dllPath $outDir
+                Write-Host "已复制: $dll"
+              } else {
+                Write-Warning "未找到依赖文件: $dll，跳过复制"
+              }
+            }
           }
 
           $zipName = "mmc-windows-$arch-$toolchain.zip"
