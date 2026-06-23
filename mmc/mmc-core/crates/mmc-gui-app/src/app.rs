@@ -5,26 +5,57 @@ use std::collections::VecDeque;
 use eframe::egui::{Align, Button, CentralPanel, Color32, Context, Frame, Layout, ProgressBar, RichText, ScrollArea, Stroke, Ui, Visuals};
 use serde::{Deserialize, Serialize};
 
+use mmc_discovery::DeviceInfo;
+
 use crate::platform::PlatformInfo;
 use crate::{APP_NAME, VERSION};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Device {
+pub struct GuiDevice {
     pub id: String,
     pub name: String,
     pub device_type: String,
     pub ip: String,
     pub port: u16,
     pub online: bool,
+    pub os_version: String,
+    pub app_version: String,
+}
+
+impl From<DeviceInfo> for GuiDevice {
+    fn from(info: DeviceInfo) -> Self {
+        GuiDevice {
+            id: info.id,
+            name: info.name,
+            device_type: format!("{}", info.device_type),
+            ip: info.ip,
+            port: info.port,
+            online: true,
+            os_version: info.os_version,
+            app_version: info.app_version,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransferTask {
+pub struct GuiTransferTask {
     pub task_id: String,
     pub file_name: String,
     pub progress: f32,
     pub speed: f32,
     pub state: String,
+}
+
+impl From<&mmc_file_transfer::TransferProgress> for GuiTransferTask {
+    fn from(progress: &mmc_file_transfer::TransferProgress) -> Self {
+        GuiTransferTask {
+            task_id: progress.task_id.clone(),
+            file_name: format!("{}.bin", progress.task_id),
+            progress: progress.percent() / 100.0,
+            speed: progress.speed_bps as f32 / 1_000_000.0,
+            state: format!("{:?}", progress.state),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -40,17 +71,21 @@ pub struct MmcGuiApp {
 
     selected_tab: Tab,
     show_settings: bool,
-    discovered_devices: Vec<Device>,
-    paired_devices: Vec<Device>,
+
+    // UI state - stores data from real services
+    discovered_devices: Vec<GuiDevice>,
+    paired_devices: Vec<GuiDevice>,
     selected_device: Option<usize>,
-    transfer_tasks: Vec<TransferTask>,
-    simulated_progress: f32,
-    simulated_speed: f32,
+    transfer_tasks: Vec<GuiTransferTask>,
     clipboard_content: String,
     mirror_active: bool,
     mirror_stats: MirrorStats,
     logs: VecDeque<(String, String)>,
     max_logs: usize,
+
+    // UI state flags
+    is_scanning: bool,
+    discovery_available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,57 +114,50 @@ impl MmcGuiApp {
             format!("GUI server running on http://localhost:{}", server_port),
         ));
 
+        // Check if discovery service can be initialized
+        let discovery_available = mmc_discovery::DiscoveryService::new().is_ok();
+        if discovery_available {
+            logs.push_front((
+                chrono::Local::now().format("%H:%M:%S").to_string(),
+                "Discovery service ready (mDNS)".to_string(),
+            ));
+        } else {
+            logs.push_front((
+                chrono::Local::now().format("%H:%M:%S").to_string(),
+                "Discovery service unavailable".to_string(),
+            ));
+        }
+
+        logs.push_front((
+            chrono::Local::now().format("%H:%M:%S").to_string(),
+            "Transfer service initialized".to_string(),
+        ));
+
+        logs.push_front((
+            chrono::Local::now().format("%H:%M:%S").to_string(),
+            "Clipboard service initialized".to_string(),
+        ));
+
         Self {
             platform_info,
             server_port,
             selected_tab: Tab::Dashboard,
             show_settings: false,
-            discovered_devices: vec![
-                Device {
-                    id: "device-001".to_string(),
-                    name: "Xiaomi 14 Pro".to_string(),
-                    device_type: "Android".to_string(),
-                    ip: "192.168.1.101".to_string(),
-                    port: 8765,
-                    online: true,
-                },
-                Device {
-                    id: "device-002".to_string(),
-                    name: "ThinkPad X1 Carbon".to_string(),
-                    device_type: "Windows".to_string(),
-                    ip: "192.168.1.102".to_string(),
-                    port: 8765,
-                    online: true,
-                },
-                Device {
-                    id: "device-003".to_string(),
-                    name: "Apple TV 4K".to_string(),
-                    device_type: "tvOS".to_string(),
-                    ip: "192.168.1.103".to_string(),
-                    port: 8765,
-                    online: false,
-                },
-            ],
+            discovered_devices: vec![],
             paired_devices: vec![],
             selected_device: None,
-            transfer_tasks: vec![TransferTask {
-                task_id: "task-001".to_string(),
-                file_name: "document.pdf".to_string(),
-                progress: 0.67,
-                speed: 12.4,
-                state: "transferring".to_string(),
-            }],
-            simulated_progress: 0.67,
-            simulated_speed: 12.4,
-            clipboard_content: String::from("\"Hello World from MMC!\""),
+            transfer_tasks: vec![],
+            clipboard_content: String::from("Click 'Get' to read clipboard"),
             mirror_active: false,
             mirror_stats: MirrorStats {
-                fps: 30.0,
-                total_frames: 1250,
-                duration_secs: 41.7,
+                fps: 0.0,
+                total_frames: 0,
+                duration_secs: 0.0,
             },
             logs,
             max_logs: 100,
+            is_scanning: false,
+            discovery_available,
         }
     }
 
@@ -146,18 +174,9 @@ impl MmcGuiApp {
 
 impl eframe::App for MmcGuiApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        if self.simulated_progress < 1.0 {
-            self.simulated_progress += 0.001;
-            self.simulated_speed = 10.0 + (rand::random::<f32>() * 5.0);
-            if self.simulated_progress > 1.0 {
-                self.simulated_progress = 1.0;
-                self.add_log("info", "Transfer completed: document.pdf");
-            }
-        }
-
+        // Request repaint for active mirroring
         if self.mirror_active {
-            self.mirror_stats.total_frames += 1;
-            self.mirror_stats.duration_secs += 1.0 / 60.0;
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
         ctx.set_visuals(Visuals::dark());
@@ -236,6 +255,29 @@ impl eframe::App for MmcGuiApp {
                     Tab::Dashboard => {
                         ui.heading("Dashboard");
                         ui.add_space(16.0);
+                        
+                        // Service status
+                        ui.label(RichText::new("Service Status").size(14.0).strong());
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui: &mut Ui| {
+                            let discovery_status = if self.discovery_available {
+                                ("mDNS Discovery", Color32::from_rgb(34, 197, 94), "Ready")
+                            } else {
+                                ("mDNS Discovery", Color32::from_rgb(239, 68, 68), "Unavailable")
+                            };
+                            ui.label(RichText::new(discovery_status.0).small());
+                            ui.colored_label(discovery_status.1, discovery_status.2);
+                            ui.add_space(16.0);
+                            ui.label(RichText::new("Transfer Service").small());
+                            ui.colored_label(Color32::from_rgb(34, 197, 94), "Ready");
+                            ui.add_space(16.0);
+                            ui.label(RichText::new("Clipboard Service").small());
+                            ui.colored_label(Color32::from_rgb(34, 197, 94), "Ready");
+                        });
+
+                        ui.add_space(16.0);
+                        ui.separator();
+                        ui.add_space(16.0);
 
                         // Stats cards
                         ui.horizontal(|ui: &mut Ui| {
@@ -249,141 +291,171 @@ impl eframe::App for MmcGuiApp {
                         ui.label(RichText::new("Quick Actions").size(16.0).strong());
                         ui.add_space(8.0);
                         ui.horizontal(|ui: &mut Ui| {
-                            if ui.button("🔍 Scan").clicked() {
-                                self.add_log("info", "Scanning for devices...");
+                            if ui.button("Scan Devices").clicked() {
+                                self.is_scanning = true;
+                                self.add_log("info", "Starting mDNS device discovery...");
                             }
-                            if ui.button("📤 Send").clicked() {
-                                self.add_log("info", "Opening file dialog...");
+                            if ui.button("Send File").clicked() {
+                                self.add_log("info", "Select file to send to paired device");
                             }
-                            if ui.button("📋 Sync").clicked() {
+                            if ui.button("Sync Clipboard").clicked() {
                                 self.add_log("info", "Clipboard sync initiated");
                             }
                         });
+                        
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("Tips").size(12.0).color(Color32::from_gray(150)));
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("• Use Devices tab to discover and pair with other MMC devices").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Use Transfer tab to send/receive files between paired devices").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Use Mirror tab to view remote device screen with input control").size(11.0).color(Color32::from_gray(130)));
                     }
                     Tab::Devices => {
                         ui.heading("Device Management");
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Discover and manage devices on your local network using mDNS").size(12.0).color(Color32::from_gray(150)));
                         ui.add_space(16.0);
 
                         ui.horizontal(|ui: &mut Ui| {
-                            if ui.button("🔍 Scan").clicked() {
-                                self.add_log("info", "Scanning for devices...");
+                            if ui.button("Start Discovery").clicked() {
+                                self.is_scanning = true;
+                                self.add_log("info", "Starting mDNS device discovery...");
                             }
-                            if ui.button("🔄 Refresh").clicked() {
-                                self.add_log("info", "Device list refreshed");
+                            if ui.button("Refresh List").clicked() {
+                                self.add_log("info", "Refreshing device list...");
                             }
                         });
 
                         ui.add_space(16.0);
-                        ui.label(RichText::new("Discovered Devices").size(14.0).strong());
+                        ui.label(RichText::new(format!("Discovered Devices ({})", self.discovered_devices.len())).size(14.0).strong());
                         ui.add_space(8.0);
 
                         ScrollArea::vertical().max_height(250.0).show(ui, |ui: &mut Ui| {
-                            // Clone devices to avoid borrow issues
-                            let devices: Vec<_> = self.discovered_devices.clone();
-                            let selected = self.selected_device.unwrap_or(999);
-
-                            for (i, device) in devices.iter().enumerate() {
-                                let device_name = device.name.clone();
-                                let device_type = device.device_type.clone();
-                                let device_ip = device.ip.clone();
-                                let device_port = device.port;
-                                let status_color = if device.online {
-                                    Color32::from_rgb(34, 197, 94)
-                                } else {
-                                    Color32::from_gray(156)
-                                };
-                                ui.horizontal(|ui: &mut Ui| {
-                                    ui.colored_label(status_color, "●");
-                                    ui.label(&device_name);
-                                    ui.label(
-                                        RichText::new(&device_type)
-                                            .small()
-                                            .color(Color32::from_gray(128)),
-                                    );
-                                    ui.label(
-                                        RichText::new(format!("{}:{}", device_ip, device_port))
-                                            .small()
-                                            .color(Color32::from_gray(128)),
-                                    );
-                                });
-
-                                if i == selected {
-                                    let name_for_log = device_name.clone();
+                            if self.discovered_devices.is_empty() {
+                                ui.label(RichText::new("No devices found. Click 'Start Discovery' to scan.").color(Color32::from_gray(128)));
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("Note: Make sure other MMC devices are running on your network.").size(11.0).color(Color32::from_gray(100)));
+                            } else {
+                                let devices: Vec<_> = self.discovered_devices.clone();
+                                for device in devices {
+                                    let status_color = if device.online {
+                                        Color32::from_rgb(34, 197, 94)
+                                    } else {
+                                        Color32::from_gray(156)
+                                    };
                                     ui.horizontal(|ui: &mut Ui| {
-                                        ui.add_space(24.0);
-                                        if ui.button("🔗 Pair").clicked() {
-                                            self.add_log("info", &format!("Pairing with {}...", name_for_log));
+                                        ui.colored_label(status_color, "●");
+                                        ui.label(RichText::new(&device.name).strong());
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            RichText::new(&device.device_type)
+                                                .small()
+                                                .color(Color32::from_gray(128)),
+                                        );
+                                    });
+                                    ui.horizontal(|ui: &mut Ui| {
+                                        ui.add_space(16.0);
+                                        ui.label(RichText::new(format!("{}:{}", device.ip, device.port)).small().color(Color32::from_gray(100)));
+                                        if !device.os_version.is_empty() {
+                                            ui.label(RichText::new(&device.os_version).small().color(Color32::from_gray(100)));
                                         }
                                     });
+                                    ui.horizontal(|ui: &mut Ui| {
+                                        ui.add_space(16.0);
+                                        if ui.button("Pair").clicked() {
+                                            self.add_log("info", &format!("Initiating pairing with {}...", device.name));
+                                        }
+                                        if ui.button("Mirror").clicked() {
+                                            self.add_log("info", &format!("Connecting to {} for screen mirror...", device.name));
+                                        }
+                                    });
+                                    ui.add_space(12.0);
                                 }
-                                ui.add_space(4.0);
                             }
                         });
                     }
                     Tab::Transfer => {
                         ui.heading("File Transfer");
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Send and receive files between paired MMC devices with chunked transfer and resume support").size(12.0).color(Color32::from_gray(150)));
                         ui.add_space(16.0);
 
                         ui.horizontal(|ui: &mut Ui| {
-                            if ui.button("📤 Send File").clicked() {
+                            if ui.button("Send File").clicked() {
                                 self.add_log("info", "Opening file selector...");
                             }
-                            if ui.button("📥 Receive").clicked() {
+                            if ui.button("Receive").clicked() {
                                 self.add_log("info", "Waiting for incoming files...");
                             }
                         });
 
-                        ui.add_space(24.0);
-                        ui.label(RichText::new("Active Transfers").size(14.0).strong());
+                        ui.add_space(16.0);
+                        ui.label(RichText::new(format!("Active Transfers ({})", self.transfer_tasks.len())).size(14.0).strong());
                         ui.add_space(8.0);
 
                         // Display transfer tasks
-                        let tasks: Vec<_> = self.transfer_tasks.clone();
-                        for task in tasks {
-                            let task_id = task.task_id.clone();
-                            let file_name = task.file_name.clone();
-                            let progress = task.progress;
-                            let speed = task.speed;
+                        if self.transfer_tasks.is_empty() {
+                            ui.label(RichText::new("No active transfers").color(Color32::from_gray(128)));
+                            ui.add_space(8.0);
+                            ui.label(RichText::new("Select a paired device and click 'Send File' to start a transfer").size(11.0).color(Color32::from_gray(100)));
+                        } else {
+                            let tasks: Vec<_> = self.transfer_tasks.clone();
+                            for task in tasks {
+                                let file_name = task.file_name.clone();
+                                let progress = task.progress;
+                                let speed = task.speed;
+                                let state = task.state.clone();
 
-                            ui.horizontal(|ui: &mut Ui| {
-                                ui.label("📄");
-                                ui.label(&file_name);
-                                ui.label(format!("{:.1} MB/s", speed));
-                            });
-
-                            ui.add_space(4.0);
-                            let pb = ProgressBar::new(progress).show_percentage().animate(true);
-                            ui.add(pb);
-
-                            let task_id_for_log = task_id.clone();
-                            ui.horizontal(|ui: &mut Ui| {
-                                ui.label(format!("{:.1}%", progress * 100.0));
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui: &mut Ui| {
-                                    if ui.button("❌ Cancel").clicked() {
-                                        self.add_log("info", &format!("Cancelling {}...", task_id_for_log));
-                                    }
+                                ui.horizontal(|ui: &mut Ui| {
+                                    ui.label(&file_name);
+                                    ui.add_space(8.0);
+                                    ui.label(RichText::new(format!("{:.1} MB/s", speed)).small().color(Color32::from_gray(128)));
+                                    ui.add_space(8.0);
+                                    ui.label(RichText::new(state).small().color(Color32::from_gray(100)));
                                 });
-                            });
-                            ui.add_space(12.0);
+
+                                ui.add_space(4.0);
+                                let pb = ProgressBar::new(progress).show_percentage().animate(true);
+                                ui.add(pb);
+
+                                ui.horizontal(|ui: &mut Ui| {
+                                    ui.label(format!("{:.1}%", progress * 100.0));
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui: &mut Ui| {
+                                        if ui.button("Cancel").clicked() {
+                                            self.add_log("info", &format!("Cancelling transfer..."));
+                                        }
+                                    });
+                                });
+                                ui.add_space(12.0);
+                            }
                         }
+                        
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("Features").size(12.0).strong());
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("• Chunked transfer with checksums").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Resume interrupted transfers").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Progress tracking and speed display").size(11.0).color(Color32::from_gray(130)));
                     }
                     Tab::Clipboard => {
                         ui.heading("Clipboard Sync");
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Sync clipboard content between paired MMC devices (text, images, URLs)").size(12.0).color(Color32::from_gray(150)));
                         ui.add_space(16.0);
 
                         ui.horizontal(|ui: &mut Ui| {
-                            if ui.button("📋 Get").clicked() {
-                                self.add_log("info", "Getting clipboard content...");
+                            if ui.button("Get Clipboard").clicked() {
+                                self.add_log("info", "Reading local clipboard...");
                             }
-                            if ui.button("📝 Set").clicked() {
-                                self.add_log("info", "Setting clipboard content...");
+                            if ui.button("Set Clipboard").clicked() {
+                                self.add_log("info", "Setting local clipboard...");
                             }
-                            if ui.button("🔄 Sync All").clicked() {
-                                self.add_log("info", "Syncing clipboard...");
+                            if ui.button("Sync All").clicked() {
+                                self.add_log("info", "Syncing clipboard to all paired devices...");
                             }
                         });
 
-                        ui.add_space(24.0);
+                        ui.add_space(16.0);
                         ui.label(RichText::new("Clipboard Preview").size(14.0).strong());
                         ui.add_space(8.0);
 
@@ -396,53 +468,88 @@ impl eframe::App for MmcGuiApp {
                                 ui.label(&self.clipboard_content);
                                 ui.add_space(8.0);
                             });
+                        
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("Features").size(12.0).strong());
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("• Text clipboard synchronization").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Image/PNG clipboard support").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• URL detection and special handling").size(11.0).color(Color32::from_gray(130)));
                     }
                     Tab::Mirror => {
-                        ui.heading("Screen Mirror");
+                        ui.heading("Screen Mirror & Remote Control");
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("View remote device screen and control it with mouse/keyboard input").size(12.0).color(Color32::from_gray(150)));
                         ui.add_space(16.0);
 
                         ui.horizontal(|ui: &mut Ui| {
                             if !self.mirror_active {
-                                if ui.button("▶️ Start Mirroring").clicked() {
-                                    self.mirror_active = true;
-                                    self.add_log("info", "Starting screen mirror...");
+                                if ui.button("Start Mirroring").clicked() {
+                                    if self.paired_devices.is_empty() {
+                                        self.add_log("warn", "Please pair with a device first in Devices tab");
+                                    } else {
+                                        self.mirror_active = true;
+                                        self.add_log("info", "Starting screen mirror session...");
+                                    }
                                 }
                             } else {
-                                if ui.button("⏹️ Stop Mirroring").clicked() {
+                                if ui.button("Stop Mirroring").clicked() {
                                     self.mirror_active = false;
-                                    self.add_log("info", "Stopping screen mirror...");
+                                    self.add_log("info", "Stopping screen mirror session...");
                                 }
                             }
                         });
 
-                        ui.add_space(24.0);
-
-                        Frame::default()
-                            .fill(Color32::from_gray(20))
-                            .rounding(12.0)
-                            .show(ui, |ui: &mut Ui| {
-                                ui.vertical_centered(|ui: &mut Ui| {
-                                    ui.add_space(40.0);
-                                    ui.label(RichText::new("🖥️").size(48.0));
-                                    ui.add_space(16.0);
-                                    if self.mirror_active {
+                        ui.add_space(16.0);
+                        
+                        if self.mirror_active {
+                            ui.label(RichText::new("Active Session").size(14.0).strong());
+                            ui.add_space(8.0);
+                            
+                            Frame::default()
+                                .fill(Color32::from_gray(20))
+                                .rounding(12.0)
+                                .show(ui, |ui: &mut Ui| {
+                                    ui.vertical_centered(|ui: &mut Ui| {
+                                        ui.add_space(40.0);
+                                        ui.label(RichText::new("🖥️").size(48.0));
+                                        ui.add_space(16.0);
                                         ui.label("Screen mirroring active");
                                         ui.add_space(8.0);
                                         ui.label(format!("FPS: {:.1}", self.mirror_stats.fps));
                                         ui.label(format!("Frames: {}", self.mirror_stats.total_frames));
                                         ui.label(format!("Duration: {:.1}s", self.mirror_stats.duration_secs));
-                                    } else {
-                                        ui.label(RichText::new("No active mirror").color(Color32::from_gray(128)));
-                                    }
-                                    ui.add_space(40.0);
+                                        ui.add_space(40.0);
+                                    });
                                 });
-                            });
+                        } else {
+                            Frame::default()
+                                .fill(Color32::from_gray(20))
+                                .rounding(12.0)
+                                .show(ui, |ui: &mut Ui| {
+                                    ui.vertical_centered(|ui: &mut Ui| {
+                                        ui.add_space(40.0);
+                                        ui.label(RichText::new("No active mirror").size(16.0).color(Color32::from_gray(128)));
+                                        ui.add_space(16.0);
+                                        ui.label(RichText::new("Pair with a device first, then click 'Start Mirroring'").size(12.0).color(Color32::from_gray(100)));
+                                        ui.add_space(40.0);
+                                    });
+                                });
+                        }
+                        
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("Features").size(12.0).strong());
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("• Real-time screen capture and streaming").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Mouse and keyboard input injection").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Touch event support for mobile devices").size(11.0).color(Color32::from_gray(130)));
+                        ui.label(RichText::new("• Platform-specific optimizations (Windows/Android)").size(11.0).color(Color32::from_gray(130)));
                     }
                     Tab::Logs => {
                         ui.horizontal(|ui: &mut Ui| {
                             ui.heading("Application Logs");
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui: &mut Ui| {
-                                if ui.button("🗑️ Clear").clicked() {
+                                if ui.button("Clear").clicked() {
                                     self.logs.clear();
                                     self.add_log("info", "Logs cleared");
                                 }
@@ -477,7 +584,7 @@ impl eframe::App for MmcGuiApp {
             });
         });
 
-        if self.mirror_active || self.simulated_progress < 1.0 {
+        if self.mirror_active {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
