@@ -10,12 +10,14 @@ use tiny_http::{Header, Response, Server};
 const HTML_GUI: &str = include_str!("../../../bindings/gui/index.html");
 
 pub fn start_server(running: Arc<AtomicBool>) -> u16 {
-    // Find available port
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind to port");
-    let port = listener.local_addr().expect("Failed to get local address").port();
-    listener.set_nonblocking(true).expect("Failed to set non-blocking");
+    // 先用临时 listener 获取空闲端口
+    let temp_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind to port");
+    let port = temp_listener.local_addr().expect("Failed to get local address").port();
+    
+    // 释放临时 listener，这样端口就会被释放
+    drop(temp_listener);
 
-    // Create server
+    // 使用获取到的端口创建服务器
     let server = Server::http(format!("127.0.0.1:{}", port)).expect("Failed to start HTTP server");
 
     tracing::info!("Embedded HTTP server listening on port {}", port);
