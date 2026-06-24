@@ -13,7 +13,6 @@ on:
   workflow_dispatch:
 
 env:
-  # Android SDK & NDK 版本
   SDK_VERSION: 34
   NDK_VERSION: 27.2.12479018
   CARGO_TERM_COLOR: always
@@ -36,7 +35,6 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 1. 安装 Java 17（Android 编译必需）
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -44,7 +42,6 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # 2. 安装 Android SDK + NDK
       - name: Install Android SDK & NDK
         uses: android-actions/setup-android@v3
         with:
@@ -52,19 +49,16 @@ jobs:
           sdk-version: ${{ env.SDK_VERSION }}
           ndk-version: ${{ env.NDK_VERSION }}
 
-      # 写入环境变量，Rust 识别 NDK
       - name: Export NDK Path
         run: |
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
           echo "PATH=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_PATH
 
-      # 3. 安装 Rust + Android 编译目标
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      # 4. 缓存 Cargo 依赖
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -74,46 +68,72 @@ jobs:
             ~/.cargo/git/db
           key: linux-android-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-      # 5. 缓存编译产物
       - name: Cache build target
         uses: actions/cache@v4
         with:
           path: mmc/mmc-core/target
           key: linux-${{ matrix.target }}-build-${{ hashFiles('mmc/mmc-core/Cargo.toml', 'mmc/mmc-core/Cargo.lock') }}
 
-      # 6. 编译 Rust Android 二进制（根据你的项目目录 mmc/mmc-core）
-      - name: Build Rust Android binary
+      # 安装 uniffi-bindgen 用于生成 Kotlin 绑定代码
+      - name: Install uniffi-bindgen
+        run: cargo install uniffi-bindgen --version 0.29.0
+
+      # 生成 Kotlin 绑定代码
+      - name: Generate Kotlin bindings from UDL
+        run: |
+          cd mmc/mmc-core/crates/mmc-core-uniffi
+          UDL_PATH="src/mmc_core.udl"
+          KOTLIN_OUT="../bindings/android/app/src/main/java/com/example/mmc"
+          
+          # 生成 Kotlin 绑定文件
+          uniffi-bindgen generate $UDL_PATH --language kotlin --out-dir /tmp/uniffi-output
+          
+          # 复制生成的 Kotlin 文件到 Android 工程
+          cp /tmp/uniffi-output/mmc_core.kt "$KOTLIN_OUT/"
+          
+          echo "Generated Kotlin bindings"
+
+      # 编译 mmc-core-uniffi Rust库为Android cdylib
+      - name: Build Rust Native Library (mmc_core.so)
         run: |
           cd mmc/mmc-core
-          cargo build --release --bin mmc-android --target ${{ matrix.target }}
+          cargo build --release -p mmc-core-uniffi --target ${{ matrix.target }}
 
-      # 7. 打包 APK（如果你使用 cargo-apk / gradle 安卓壳工程）
-      ## 场景A：使用 cargo-apk 一键打包（纯Rust安卓项目）
-      - name: Install cargo-apk
-        run: cargo install cargo-apk
-
-      - name: Generate unsigned APK
+      # 将编译好的 .so 文件复制到 Android 工程的 jniLibs 目录
+      - name: Copy Rust Library to Android jniLibs
         run: |
-          cd mmc/mmc-core
-          cargo apk build --release --target ${{ matrix.target }}
-          mv target/${{ matrix.target }}/release/apk/*.apk mmc-android-${{ matrix.arch }}-unsigned.apk
+          ANDROID_PROJECT="mmc/mmc-core/crates/mmc-core-uniffi/bindings/android"
+          LIB_DIR="$ANDROID_PROJECT/app/src/main/libs/${{ matrix.arch }}"
+          mkdir -p "$LIB_DIR"
+          cp mmc/mmc-core/target/${{ matrix.target }}/release/libmmc_core.so "$LIB_DIR/"
+          echo "Copied libmmc_core.so to $LIB_DIR"
 
-      ## 场景B：有独立 Android gradle 工程（app/ 目录），取消下面注释使用
-      # - name: Build APK via Gradle
-      #   run: |
-      #     cd android
-      #     ./gradlew assembleRelease
-      #     mv app/build/outputs/apk/release/app-release-unsigned.apk ../mmc-android-${{ matrix.arch }}-unsigned.apk
+      # 使用 Gradle 构建 APK
+      - name: Setup Gradle Wrapper
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.5
+          cache-read-only: false
 
-      # 8. 上传 APK 制品
+      - name: Build APK via Gradle
+        run: |
+          cd mmc/mmc-core/crates/mmc-core-uniffi/bindings/android
+          gradle assembleRelease --no-daemon
+
+      # 重命名 APK 文件
+      - name: Rename APK
+        run: |
+          APK_PATH="mmc/mmc-core/crates/mmc-core-uniffi/bindings/android/app/build/outputs/apk/release"
+          mv "$APK_PATH/app-release-unsigned.apk" "$APK_PATH/mmc-android-${{ matrix.arch }}-unsigned.apk" || true
+          mv "$APK_PATH/app-release.apk" "$APK_PATH/mmc-android-${{ matrix.arch }}-unsigned.apk" || true
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-${{ matrix.arch }}
-          path: mmc/mmc-core/mmc-android-*.apk
+          path: mmc/mmc-core/crates/mmc-core-uniffi/bindings/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-  # Tag推送自动发布APK到Release
   release-apk:
     needs: build-android
     runs-on: ubuntu-latest
