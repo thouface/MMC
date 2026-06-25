@@ -74,19 +74,15 @@ jobs:
           path: mmc/mmc-core/target
           key: linux-${{ matrix.target }}-build-${{ hashFiles('mmc/mmc-core/Cargo.toml', 'mmc/mmc-core/Cargo.lock') }}
 
-      # 全局安装 UniFFI CLI（带 cli 特性，支持 Kotlin/Swift/Python/Ruby 绑定生成）
-      - name: Install UniFFI CLI v0.29
-        run: cargo install uniffi --version 0.29.0 --features cli
-
-      # 生成 Kotlin 绑定代码
+      # 生成 Kotlin 绑定代码（使用项目本地 uniffi-bindgen crate）
       - name: Generate Kotlin bindings from UDL
         run: |
-          cd mmc/mmc-core/crates/mmc-core-uniffi
-          UDL_PATH="src/mmc_core.udl"
-          KOTLIN_OUT="../bindings/android/app/src/main/java/com/example/mmc"
+          cd mmc/mmc-core
+          UDL_PATH="crates/mmc-core-uniffi/src/mmc_core.udl"
+          KOTLIN_OUT="crates/mmc-core-uniffi/bindings/android/app/src/main/java/com/example/mmc"
           
-          # 生成 Kotlin 绑定文件
-          uniffi-bindgen generate $UDL_PATH --language kotlin --out-dir /tmp/uniffi-output
+          # 使用项目本地的 uniffi-bindgen crate 生成 Kotlin 绑定
+          cargo run -p uniffi-bindgen -- generate $UDL_PATH --language kotlin --out-dir /tmp/uniffi-output
           
           # 确保输出目录存在
           mkdir -p "$KOTLIN_OUT"

@@ -2306,6 +2306,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uniffi",
  "uniffi_bindgen",
  "uuid",
 ]
@@ -4421,6 +4422,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
+name = "uniffi"
+version = "0.29.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3291800a6b06569f7d3e15bdb6dc235e0f0c8bd3eb07177f430057feb076415f"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "uniffi_bindgen",
+ "uniffi_core",
+ "uniffi_macros",
+ "uniffi_pipeline",
+]
+
+[[package]]
+name = "uniffi-bindgen"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "uniffi_bindgen",
+]
+
+[[package]]
 name = "uniffi_bindgen"
 version = "0.29.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4447,6 +4470,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "uniffi_core"
+version = "0.29.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f38a9a27529ccff732f8efddb831b65b1e07f7dea3fd4cacd4a35a8c4b253b98"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "once_cell",
+ "static_assertions",
+]
+
+[[package]]
 name = "uniffi_internal_macros"
 version = "0.29.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4457,6 +4492,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "uniffi_macros"
+version = "0.29.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5596f178c4f7aafa1a501c4e0b96236a96bc2ef92bdb453d83e609dad0040152"
+dependencies = [
+ "camino",
+ "fs-err",
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn",
+ "toml",
+ "uniffi_meta",
 ]
 
 [[package]]

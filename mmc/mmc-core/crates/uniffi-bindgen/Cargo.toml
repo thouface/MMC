@@ -1,0 +1,12 @@
+[package]
+name = "uniffi-bindgen"
+version = "0.1.0"
+edition.workspace = true
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+uniffi_bindgen = "0.29"
+camino = "1.1"
