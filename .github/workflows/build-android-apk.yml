@@ -87,8 +87,8 @@ jobs:
           # 确保输出目录存在
           mkdir -p "$KOTLIN_OUT"
           
-          # 复制生成的 Kotlin 文件到 Android 工程
-          cp /tmp/uniffi-output/mmc_core.kt "$KOTLIN_OUT/"
+          # uniffi 0.29 生成的文件路径是嵌套的：/tmp/uniffi-output/uniffi/mmc_core/mmc_core.kt
+          cp /tmp/uniffi-output/uniffi/mmc_core/mmc_core.kt "$KOTLIN_OUT/"
           
           echo "Generated Kotlin bindings"
 
