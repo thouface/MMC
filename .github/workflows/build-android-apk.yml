@@ -35,6 +35,12 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      - name: Install system dependencies (protoc, cmake)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler cmake
+          protoc --version
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -49,18 +55,36 @@ jobs:
           sdk-version: ${{ env.SDK_VERSION }}
           ndk-version: ${{ env.NDK_VERSION }}
 
-      - name: Export NDK Path
+      - name: Setup Android NDK toolchain
         run: |
-          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          NDK_ROOT="$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}"
+          NDK_TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64"
+          NDK_BIN="$NDK_TOOLCHAIN/bin"
+
+          echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$NDK_ROOT" >> $GITHUB_ENV
+
+          # NDK 26 has aarch64-linux-android<api-level>-clang wrapper scripts
+          # cc crate (ring dependency) looks for CC_<target> with underscores
+          echo "CC_aarch64_linux_android=$NDK_BIN/aarch64-linux-android26-clang" >> $GITHUB_ENV
+          echo "CXX_aarch64_linux_android=$NDK_BIN/aarch64-linux-android26-clang++" >> $GITHUB_ENV
+          echo "AR_aarch64_linux_android=$NDK_BIN/llvm-ar" >> $GITHUB_ENV
+
+          # Cargo linker config
+          mkdir -p mmc/mmc-core/.cargo
+          cat > mmc/mmc-core/.cargo/config.toml << EOF
+          [target.aarch64-linux-android]
+          ar = "$NDK_BIN/llvm-ar"
+          linker = "$NDK_BIN/aarch64-linux-android26-clang"
+          EOF
+
+          echo "NDK toolchain configured"
+          "$NDK_BIN/clang" --version
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-
-      - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -83,23 +107,23 @@ jobs:
           cd mmc/mmc-core
           UDL_PATH="crates/mmc-core-uniffi/src/mmc_core.udl"
           KOTLIN_OUT="crates/mmc-core-uniffi/bindings/android/app/src/main/java/com/example/mmc"
-          
+
           # 使用项目本地的 uniffi-bindgen crate 生成 Kotlin 绑定
           cargo run -p uniffi-bindgen -- generate $UDL_PATH --language kotlin --out-dir /tmp/uniffi-output
-          
+
           # 确保输出目录存在
           mkdir -p "$KOTLIN_OUT"
-          
+
           # uniffi 0.29 生成的文件路径是嵌套的：/tmp/uniffi-output/uniffi/mmc_core/mmc_core.kt
           cp /tmp/uniffi-output/uniffi/mmc_core/mmc_core.kt "$KOTLIN_OUT/"
-          
+
           echo "Generated Kotlin bindings"
 
       # 编译 mmc-core-uniffi Rust库为Android cdylib
       - name: Build Rust Native Library (mmc_core.so)
         run: |
           cd mmc/mmc-core
-          cross build --release -p mmc-core-uniffi --target aarch64-linux-android
+          cargo build --release -p mmc-core-uniffi --target aarch64-linux-android
 
       # 将编译好的 .so 文件复制到 Android 工程的 jniLibs 目录
       - name: Copy Rust Library to Android jniLibs
