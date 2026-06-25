@@ -14,7 +14,7 @@ on:
 
 env:
   SDK_VERSION: 34
-  NDK_VERSION: 27.2.12479018
+  NDK_VERSION: 26.3.11579264
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
 
@@ -54,36 +54,13 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
-      - name: Setup Cargo Config for Android Cross-Compilation
-        run: |
-          NDK_ROOT="$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}"
-          NDK_TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64"
-          NDK_BIN="$NDK_TOOLCHAIN/bin"
-          
-          # 设置 cc crate 需要的 CC/CXX 环境变量（NDK 27.x 用 clang --target）
-          echo "CC_aarch64_linux_android=$NDK_BIN/clang" >> $GITHUB_ENV
-          echo "CXX_aarch64_linux_android=$NDK_BIN/clang++" >> $GITHUB_ENV
-          echo "AR_aarch64_linux_android=$NDK_BIN/llvm-ar" >> $GITHUB_ENV
-          echo "CFLAGS_aarch64_linux_android=--target=aarch64-linux-android26" >> $GITHUB_ENV
-          echo "CXXFLAGS_aarch64_linux_android=--target=aarch64-linux-android26" >> $GITHUB_ENV
-          echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> $GITHUB_ENV
-          
-          mkdir -p mmc/mmc-core/.cargo
-          cat > mmc/mmc-core/.cargo/config.toml << EOF
-          [target.aarch64-linux-android]
-          ar = "$NDK_BIN/llvm-ar"
-          linker = "$NDK_BIN/clang"
-          rustflags = [
-            "-C", "link-arg=--target=aarch64-linux-android26",
-            "-C", "link-arg=--sysroot=$NDK_TOOLCHAIN/sysroot"
-          ]
-          EOF
-          echo "Created .cargo/config.toml for Android cross-compilation"
-
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 2.12.7
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -122,7 +99,7 @@ jobs:
       - name: Build Rust Native Library (mmc_core.so)
         run: |
           cd mmc/mmc-core
-          cargo build --release -p mmc-core-uniffi --target aarch64-linux-android
+          cargo ndk -t aarch64-linux-android -p 26 -- build --release -p mmc-core-uniffi
 
       # 将编译好的 .so 文件复制到 Android 工程的 jniLibs 目录
       - name: Copy Rust Library to Android jniLibs
