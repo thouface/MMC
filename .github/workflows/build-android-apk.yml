@@ -59,8 +59,8 @@ jobs:
         with:
           targets: aarch64-linux-android
 
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --version 2.12.7
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -99,7 +99,7 @@ jobs:
       - name: Build Rust Native Library (mmc_core.so)
         run: |
           cd mmc/mmc-core
-          cargo ndk -t aarch64-linux-android -p 26 -- build --release -p mmc-core-uniffi
+          cross build --release -p mmc-core-uniffi --target aarch64-linux-android
 
       # 将编译好的 .so 文件复制到 Android 工程的 jniLibs 目录
       - name: Copy Rust Library to Android jniLibs
