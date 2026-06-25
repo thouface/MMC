@@ -60,21 +60,23 @@ jobs:
           NDK_TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64"
           NDK_BIN="$NDK_TOOLCHAIN/bin"
           
-          # 设置 cc crate 需要的 CC/CXX 环境变量
-          echo "CC_aarch64_linux_android=$NDK_BIN/aarch64-linux-android26-clang" >> $GITHUB_ENV
-          echo "CXX_aarch64_linux_android=$NDK_BIN/aarch64-linux-android26-clang++" >> $GITHUB_ENV
+          # 设置 cc crate 需要的 CC/CXX 环境变量（NDK 27.x 用 clang --target）
+          echo "CC_aarch64_linux_android=$NDK_BIN/clang" >> $GITHUB_ENV
+          echo "CXX_aarch64_linux_android=$NDK_BIN/clang++" >> $GITHUB_ENV
           echo "AR_aarch64_linux_android=$NDK_BIN/llvm-ar" >> $GITHUB_ENV
+          echo "CFLAGS_aarch64_linux_android=--target=aarch64-linux-android26" >> $GITHUB_ENV
+          echo "CXXFLAGS_aarch64_linux_android=--target=aarch64-linux-android26" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> $GITHUB_ENV
           
           mkdir -p mmc/mmc-core/.cargo
           cat > mmc/mmc-core/.cargo/config.toml << EOF
           [target.aarch64-linux-android]
           ar = "$NDK_BIN/llvm-ar"
-          linker = "$NDK_BIN/aarch64-linux-android26-clang"
-          rustflags = ["-C", "link-arg=--target=aarch64-linux-android26"]
-
-          [build]
-          target = "aarch64-linux-android"
+          linker = "$NDK_BIN/clang"
+          rustflags = [
+            "-C", "link-arg=--target=aarch64-linux-android26",
+            "-C", "link-arg=--sysroot=$NDK_TOOLCHAIN/sysroot"
+          ]
           EOF
           echo "Created .cargo/config.toml for Android cross-compilation"
 
@@ -120,7 +122,7 @@ jobs:
       - name: Build Rust Native Library (mmc_core.so)
         run: |
           cd mmc/mmc-core
-          cargo build --release -p mmc-core-uniffi
+          cargo build --release -p mmc-core-uniffi --target aarch64-linux-android
 
       # 将编译好的 .so 文件复制到 Android 工程的 jniLibs 目录
       - name: Copy Rust Library to Android jniLibs
