@@ -57,14 +57,27 @@ jobs:
 
       - name: Setup Android NDK toolchain
         run: |
-          NDK_ROOT="$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
+
+          # 查找实际的 NDK 路径
+          if [ -z "$ANDROID_NDK_HOME" ]; then
+            echo "ANDROID_NDK_HOME not set, looking for NDK..."
+            find "$ANDROID_HOME" -maxdepth 3 -name "clang" -type f 2>/dev/null | head -5
+            ls -la "$ANDROID_HOME/ndk/" 2>/dev/null || echo "No ndk dir at $ANDROID_HOME/ndk"
+          fi
+
+          NDK_ROOT="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}}"
           NDK_TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64"
           NDK_BIN="$NDK_TOOLCHAIN/bin"
+
+          echo "Using NDK at: $NDK_ROOT"
+          ls "$NDK_BIN/clang" --version 2>&1 || echo "clang not found at $NDK_BIN/clang"
 
           echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$NDK_ROOT" >> $GITHUB_ENV
 
-          # NDK 26 has aarch64-linux-android<api-level>-clang wrapper scripts
           # cc crate (ring dependency) looks for CC_<target> with underscores
           echo "CC_aarch64_linux_android=$NDK_BIN/aarch64-linux-android26-clang" >> $GITHUB_ENV
           echo "CXX_aarch64_linux_android=$NDK_BIN/aarch64-linux-android26-clang++" >> $GITHUB_ENV
@@ -79,7 +92,6 @@ jobs:
           EOF
 
           echo "NDK toolchain configured"
-          "$NDK_BIN/clang" --version
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
