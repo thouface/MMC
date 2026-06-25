@@ -32,7 +32,7 @@ rand = "0.8"
 uniffi = "0.29"
 
 [build-dependencies]
-uniffi_bindgen = "0.29"
+uniffi_build = "0.29"
 camino = "1.1"
 
 [dev-dependencies]
