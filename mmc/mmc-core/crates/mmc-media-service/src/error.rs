@@ -22,6 +22,12 @@ pub enum MediaError {
     #[error("Input dispatch error: {0}")]
     InputDispatch(String),
 
+    #[error("Capture failed: {0}")]
+    CaptureFailed(String),
+
+    #[error("Injection failed: {0}")]
+    InjectionFailed(String),
+
     #[error("Not initialized")]
     NotInitialized,
 
