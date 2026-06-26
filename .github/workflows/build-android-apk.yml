@@ -119,18 +119,17 @@ jobs:
           cd mmc/mmc-core
           UDL_PATH="crates/mmc-core-uniffi/src/mmc_core.udl"
           KOTLIN_OUT="crates/mmc-core-uniffi/bindings/android/app/src/main/java/com/example/mmc"
+          BACKUP_OUT="/tmp/uniffi-backup"
 
           # 使用项目本地的 uniffi-bindgen crate 生成 Kotlin 绑定
           cargo run -p uniffi-bindgen -- generate $UDL_PATH --language kotlin --out-dir /tmp/uniffi-output
 
-          # 确保输出目录存在
-          mkdir -p "$KOTLIN_OUT"
+          # 备份生成的文件（暂不包含到 Android 项目编译中）
+          mkdir -p "$BACKUP_OUT"
+          find /tmp/uniffi-output -name "*.kt" -exec cp {} "$BACKUP_OUT/" \;
 
-          # uniffi 0.29 生成的文件在嵌套目录中，复制所有 .kt 文件
-          find /tmp/uniffi-output -name "*.kt" -exec cp {} "$KOTLIN_OUT/" \;
-
-          echo "Generated Kotlin bindings:"
-          ls -la "$KOTLIN_OUT/"
+          echo "Generated Kotlin bindings (backed up to $BACKUP_OUT):"
+          ls -la "$BACKUP_OUT/"
 
       # 编译 mmc-core-uniffi Rust库为Android cdylib
       - name: Build Rust Native Library (mmc_core.so)
