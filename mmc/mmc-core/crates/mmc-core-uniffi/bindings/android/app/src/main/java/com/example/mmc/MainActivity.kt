@@ -25,10 +25,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
-        startDiscoveryButton = findViewById(R.id.startDiscoveryButton)
-        startMirrorButton = findViewById(R.id.startMirrorButton)
-        sendFileButton = findViewById(R.id.sendFileButton)
+        statusText = findViewById(R.id.status_text)
+        startDiscoveryButton = findViewById(R.id.btn_start_discovery)
+        startMirrorButton = findViewById(R.id.btn_start_mirror)
+        sendFileButton = findViewById(R.id.btn_send_file)
 
         updateStatus("Ready")
 
