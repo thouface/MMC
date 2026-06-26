@@ -126,10 +126,11 @@ jobs:
           # 确保输出目录存在
           mkdir -p "$KOTLIN_OUT"
 
-          # uniffi 0.29 生成的文件路径是嵌套的：/tmp/uniffi-output/uniffi/mmc_core/mmc_core.kt
-          cp /tmp/uniffi-output/uniffi/mmc_core/mmc_core.kt "$KOTLIN_OUT/"
+          # uniffi 0.29 生成的文件在嵌套目录中，复制所有 .kt 文件
+          find /tmp/uniffi-output -name "*.kt" -exec cp {} "$KOTLIN_OUT/" \;
 
-          echo "Generated Kotlin bindings"
+          echo "Generated Kotlin bindings:"
+          ls -la "$KOTLIN_OUT/"
 
       # 编译 mmc-core-uniffi Rust库为Android cdylib
       - name: Build Rust Native Library (mmc_core.so)
