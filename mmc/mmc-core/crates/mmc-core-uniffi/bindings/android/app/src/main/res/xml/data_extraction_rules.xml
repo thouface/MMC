@@ -2,6 +2,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="."/>
+        <include domain="database" path="."/>
         <exclude domain="database" path="mmc_storage.db"/>
     </cloud-backup>
     <device-transfer>

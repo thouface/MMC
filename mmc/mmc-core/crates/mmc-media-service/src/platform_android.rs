@@ -159,6 +159,7 @@ mod android_impl {
                 mmc_protocol::TouchType::Move => 1,
                 mmc_protocol::TouchType::Up => 2,
                 mmc_protocol::TouchType::Cancel => 3,
+                mmc_protocol::TouchType::Unknown => 4,
             };
             
             let success = unsafe {
@@ -189,6 +190,7 @@ mod android_impl {
                 mmc_protocol::KeyEventType::Down => 0,
                 mmc_protocol::KeyEventType::Up => 1,
                 mmc_protocol::KeyEventType::Text => 2,
+                mmc_protocol::KeyEventType::Unknown => 3,
             };
             
             let success = unsafe {
